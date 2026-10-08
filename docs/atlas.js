@@ -28,6 +28,7 @@ const CLASSES = [
 const ZERO = { color: "#a9a7a0", radius: 2.2 };
 const OUTLINE = "rgba(31, 30, 28, 0.55)";
 const DEFAULT_NET = "CB";      // CalCOFI bongo, the standard net since 1978
+const DEFAULT_STATION = "090.0 060.0";   // Line 90, station 60: time series open on page load
 
 const state = {
   taxon: null,          // entry from taxa.json
@@ -736,7 +737,12 @@ async function init() {
   updateAvailable();
   if (fromHash.survey >= 0 && available.includes(fromHash.survey)) state.periodPos = available.indexOf(fromHash.survey);
   else state.periodPos = Math.max(0, available.length - 1);
+  // A shared link's station wins; otherwise open the time series at the default station.
   if (fromHash.station >= 0) state.station = fromHash.station;
+  else if (!location.hash) {
+    const station = meta.stations.findIndex((s) => s.key === DEFAULT_STATION);
+    if (station >= 0) state.station = station;
+  }
   await selectTaxon(start, !fromHash.taxon);
 }
 
