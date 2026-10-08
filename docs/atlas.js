@@ -10,7 +10,7 @@
 
 const DATA = "data/";
 const INITIAL_BOUNDS = [[-135, 19], [-108, 43]];
-const PLAY_INTERVAL_MS = 900;
+const PLAY_INTERVAL_MS = 2000;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
   "August", "September", "October", "November", "December"];
 
@@ -44,6 +44,11 @@ const state = {
 
 let meta, occ, taxa, map, popup;
 let mapReady = false;          // set once on "load"; isStyleLoaded() is false while a source updates
+let lineMarkers = [];          // CalCOFI line-number labels currently on the map
+// Lines need this many stations in view to be labelled: the modern pattern's
+// one- or two-station inshore "lines" (e.g. 81.8, 86.8, 93.4) would otherwise
+// stack labels against the coast.
+const MIN_LINE_STATIONS = 3;
 let occByPeriod;               // period index -> occupation row indices
 const taxonCache = new Map();  // taxon id -> Map(key -> abundance)
 let available = [];            // period indices sampled with the chosen sampling + net
@@ -165,6 +170,7 @@ function render() {
   if (!state.taxon || !taxonCache.has(state.taxon.id) || !mapReady) return;
   const fc = features();
   map.getSource("stations").setData(fc);
+  renderLineLabels(fc);
   const sampled = fc.features.length;
   const withCatch = fc.features.filter((f) => f.properties.a > 0).length;
 
@@ -186,6 +192,78 @@ function render() {
   renderLegend();
   if (state.station !== null) renderStationChart();
   writeHash();
+}
+
+// CalCOFI line numbers, standard sampling only. Each label lies on its line's
+// own extension just beyond the offshore (western) end of the stations shown,
+// rotated to the line's angle so it reads as part of that line; the end moves
+// with each survey's (or composite's) actual coverage. HTML markers need no
+// map font files.
+const LABEL_GAP_PX = 8;
+let lineAxes = null;           // line -> {ux, uy, angle}: screen-space direction, west -> east
+
+// Web Mercator y for a latitude, in degree-equivalent units (x is longitude),
+// so directions computed here match the map's screen angles at every zoom.
+const mercatorY = (lat) => (Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) * 180) / Math.PI;
+
+function computeLineAxes() {
+  // Best-fit (principal-axis) direction of every station on each line, over the
+  // whole record, so a survey that sampled part of a line still gets its angle.
+  const byLine = new Map();
+  for (const s of meta.stations) {
+    if (!byLine.has(s.line)) byLine.set(s.line, []);
+    byLine.get(s.line).push([s.lon, mercatorY(s.lat)]);
+  }
+  lineAxes = new Map();
+  for (const [line, pts] of byLine) {
+    if (pts.length < 2) continue;
+    const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+    const my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+    let sxx = 0, syy = 0, sxy = 0;
+    for (const [x, y] of pts) { sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my); }
+    const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);       // principal axis, map coordinates (y north)
+    let ux = Math.cos(theta), uy = -Math.sin(theta);           // screen coordinates (y down)
+    if (ux < 0) { ux = -ux; uy = -uy; }                        // point west -> east
+    lineAxes.set(line, { ux, uy, angle: (Math.atan2(uy, ux) * 180) / Math.PI });
+  }
+}
+
+function renderLineLabels(fc) {
+  for (const m of lineMarkers) m.remove();
+  lineMarkers = [];
+  if (meta.samplings[state.sampling] !== "standard") return;
+  if (!lineAxes) computeLineAxes();
+  const end = new Map();    // line -> offshore-most station along the line's axis
+  const count = new Map();  // line -> stations in view
+  for (const f of fc.features) {
+    const s = meta.stations[f.properties.st];
+    count.set(s.line, (count.get(s.line) || 0) + 1);
+    const axis = lineAxes.get(s.line);
+    const along = axis ? s.lon * axis.ux - mercatorY(s.lat) * axis.uy : s.lon;   // larger = further east
+    const best = end.get(s.line);
+    if (!best || along < best.along) end.set(s.line, { s, along });
+  }
+  for (const [line, { s }] of end) {
+    if (count.get(line) < MIN_LINE_STATIONS) continue;
+    const axis = lineAxes.get(line) || { ux: 1, uy: 0, angle: 0 };
+    const el = document.createElement("div");
+    el.className = "line-label";
+    el.textContent = Number.isInteger(line) ? String(line) : line.toFixed(1);
+    el.title = `CalCOFI line ${line.toFixed(1)}`;
+    // Anchored and rotated at its centre, with that centre placed on the
+    // line's extension half a label-width beyond the gap, so the extended line
+    // bisects the text. (MapLibre rotates a marker about the element's centre,
+    // not its anchor, so an end-anchored label would sit off the line.)
+    const marker = new maplibregl.Marker({
+      element: el,
+      anchor: "center",
+      rotation: axis.angle,
+      rotationAlignment: "viewport",
+    }).setLngLat([s.lon, s.lat]).addTo(map);
+    const back = LABEL_GAP_PX + el.offsetWidth / 2;
+    marker.setOffset([-back * axis.ux, -back * axis.uy]);
+    lineMarkers.push(marker);
+  }
 }
 
 // The label on the land side of the map: when, which cruises, which species,
@@ -609,6 +687,10 @@ function createMap() {
     },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  // North stays up: the line labels are drawn at fixed screen angles.
+  map.dragRotate.disable();
+  map.touchZoomRotate.disableRotation();
+  map.keyboard.disableRotation();
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
   popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
 

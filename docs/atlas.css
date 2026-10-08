@@ -201,6 +201,16 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
 .maplibregl-popup-content { padding: 8px 10px; font: 13px/1.4 var(--font); }
 
+/* CalCOFI line numbers at the offshore (western) end of each line. */
+.line-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto 60vh; height: auto; }
   .controls { border-right: 0; border-bottom: 1px solid var(--border); }
