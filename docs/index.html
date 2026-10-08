@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CalCOFI Ichthyoplankton Atlas</title>
+  <meta name="description" content="Fish egg and larva distributions from 70+ years of CalCOFI plankton tows, by species, cruise and season.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.css">
+  <link rel="stylesheet" href="atlas.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>CalCOFI Ichthyoplankton Atlas</h1>
+    <p class="subtitle">Fish eggs and larvae from CalCOFI plankton tows, 1951–2023</p>
+  </header>
+
+  <main class="layout">
+    <aside class="controls" aria-label="Atlas controls">
+      <section class="control">
+        <label for="species-input">Species</label>
+        <div class="species-picker">
+          <input id="species-input" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Common or scientific name" aria-autocomplete="list" aria-controls="species-list">
+          <ul id="species-list" class="species-list" role="listbox" hidden></ul>
+        </div>
+        <p id="species-detail" class="hint"></p>
+      </section>
+
+      <section class="control two-up">
+        <div>
+          <label for="stage-select">Life stage</label>
+          <select id="stage-select"></select>
+        </div>
+        <div>
+          <label for="sampling-select">Sampling</label>
+          <select id="sampling-select"></select>
+        </div>
+      </section>
+
+      <section class="control">
+        <label for="net-select">Net</label>
+        <select id="net-select"></select>
+        <p class="hint">Abundance from different nets is not comparable, so one net is shown at a time.</p>
+      </section>
+
+      <section class="control">
+        <span class="label">View</span>
+        <div class="segmented" role="radiogroup" aria-label="View">
+          <button type="button" role="radio" data-mode="cruise" aria-checked="true">Single survey</button>
+          <button type="button" role="radio" data-mode="composite" aria-checked="false">Composite</button>
+        </div>
+      </section>
+
+      <section class="control" id="cruise-controls">
+        <label for="period-range">Survey month</label>
+        <div class="stepper">
+          <button type="button" id="prev-btn" aria-label="Previous survey">◀</button>
+          <button type="button" id="play-btn" aria-label="Play">▶ Play</button>
+          <button type="button" id="next-btn" aria-label="Next survey">▶</button>
+        </div>
+        <input id="period-range" type="range" min="0" max="0" value="0">
+        <p id="period-label" class="period-label"></p>
+      </section>
+
+      <section class="control" id="composite-controls" hidden>
+        <label for="season-select">Season</label>
+        <select id="season-select">
+          <option value="all">All seasons</option>
+          <option value="winter">Winter (Dec–Feb)</option>
+          <option value="spring">Spring (Mar–May)</option>
+          <option value="summer">Summer (Jun–Aug)</option>
+          <option value="autumn">Autumn (Sep–Nov)</option>
+        </select>
+        <div class="two-up">
+          <div>
+            <label for="year-from">From</label>
+            <input id="year-from" type="number" min="1951" max="2023" step="1">
+          </div>
+          <div>
+            <label for="year-to">To</label>
+            <input id="year-to" type="number" min="1951" max="2023" step="1">
+          </div>
+        </div>
+        <p id="composite-label" class="period-label"></p>
+      </section>
+
+      <section class="control legend" aria-label="Legend">
+        <span class="label" id="legend-title">Abundance</span>
+        <ul id="legend-items"></ul>
+      </section>
+
+      <footer class="about">
+        <p>Data: SWFSC ichthyoplankton via <a href="https://calcofi.io">CalCOFI.io</a>, filtered to
+          CalCOFI cruises and stations and standardised per net
+          (<a href="https://github.com/smcclatchie/CalCOFI_digital_atlas">methods and code</a>).
+          <span id="data-generated"></span></p>
+      </footer>
+    </aside>
+
+    <section class="map-area">
+      <div id="map" aria-label="Map of station abundance"></div>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
+        <header>
+          <h2 id="station-title"></h2>
+          <button type="button" id="station-close" aria-label="Close station chart">✕</button>
+        </header>
+        <div id="station-chart"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.js"></script>
+  <script src="atlas.js"></script>
+</body>
+</html>

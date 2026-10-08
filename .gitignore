@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.vscode/*(conflicted)*
+# docs/data IS committed: GitHub Pages serves it with the site.

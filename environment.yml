@@ -1,0 +1,10 @@
+# Recreate with: conda env create -f environment.yml
+name: calcofi_atlas
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - pandas
+  - python-duckdb
+  - cartopy
