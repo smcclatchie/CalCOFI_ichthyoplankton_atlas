@@ -101,6 +101,7 @@ def main():
                             ships=("ship_name", lambda s: sorted(set(s.dropna()))),
                             cruises=("cruise_key", lambda s: sorted(set(s))))
                        .reindex(periods))
+    cruise_ship = tows.drop_duplicates("cruise_key").set_index("cruise_key").ship_name
     meta = {
         "title": "CalCOFI ichthyoplankton atlas",
         "source": "SWFSC ichthyoplankton (CalCOFI.io swfsc_ichthyo.nc), filtered to CalCOFI cruises "
@@ -108,7 +109,9 @@ def main():
                   "https://github.com/smcclatchie/CalCOFI_digital_atlas",
         "generated": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d"),
         "periods": [{"key": p, "year": int(p[:4]), "month": int(p[5:7]), "season": SEASONS[int(p[5:7])],
-                     "start": r.start, "end": r.end, "ships": r.ships, "cruises": r.cruises}
+                     "start": r.start, "end": r.end, "ships": r.ships,
+                     "cruises": [{"key": c, "ship": None if pd.isna(cruise_ship[c]) else cruise_ship[c]}
+                                 for c in r.cruises]}
                     for p, r in period_info.iterrows()],
         "stations": [{"key": r.site_key, "line": r.line, "station": r.station,
                       "lat": round(r.lat, 4), "lon": round(r.lon, 4)} for r in station_list.itertuples()],
@@ -144,7 +147,8 @@ def main():
               .agg(rows=("abundance", "size"),
                    eggs=("life_stage", lambda s: int((s == "egg").sum())),
                    larvae=("life_stage", lambda s: int((s == "larva").sum())),
-                   top_net=("net_type", lambda s: s.value_counts().index[0]))
+                   top_net=("net_type", lambda s: s.value_counts().index[0]),
+                   net_rows=("net_type", lambda s: [int((s == n).sum()) for n in nets]))
               .join(names)
               .sort_values("rows", ascending=False))
 
@@ -166,7 +170,8 @@ def main():
                      "common": None if pd.isna(r.common_name) else r.common_name,
                      "family": None if pd.isna(r.family) else r.family,
                      "rows": int(r.rows), "eggs": r.eggs, "larvae": r.larvae,
-                     "topNet": index["net"][r.top_net]})
+                     "topNet": index["net"][r.top_net],
+                     "netRows": r.net_rows})          # records per net, in meta.nets order
 
     # ---- coastline: Natural Earth 1:50m land clipped to the region ----
     land_shp = shpreader.natural_earth(resolution="50m", category="physical", name="land")

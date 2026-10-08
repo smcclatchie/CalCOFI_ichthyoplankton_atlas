@@ -97,6 +97,28 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .species-list li[aria-selected="true"], .species-list li:hover { background: #eef4fc; }
 .species-list .sci { font-style: italic; color: var(--text-secondary); }
 .species-list .count { float: right; color: var(--text-muted); font-size: 12px; }
+.species-select { margin-top: 6px; }
+
+/* What the map shows right now, on the land side of the map. */
+.map-label {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 56px;
+  max-width: min(360px, calc(100% - 80px));
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+.map-label:empty { display: none; }
+.map-label .when { display: block; font-size: 20px; font-weight: 600; color: var(--text-primary); }
+.map-label .species { display: block; font-weight: 600; color: var(--text-primary); }
+.map-label .sci { font-style: italic; font-weight: 400; }
 
 .segmented { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .segmented button {

@@ -14,16 +14,20 @@ const PLAY_INTERVAL_MS = 900;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
   "August", "September", "October", "November", "December"];
 
-// Sequential single-hue ramp (light -> dark) on log10 abundance; colour and
-// size both rise with abundance. Zero catches are small and neutral grey.
+// Reverse viridis on log10 abundance: pale yellow (low) to dark purple (high),
+// perceptually uniform and colour-vision-deficiency safe. Colour and size both
+// rise with abundance; a thin dark outline keeps the pale low classes visible
+// against the light sea. Zero catches are small and neutral grey.
 const CLASSES = [
-  { min: 0, max: 1, color: "#86b6ef", radius: 3.5, label: "less than 1" },
-  { min: 1, max: 10, color: "#5598e7", radius: 4.5, label: "1 – 10" },
-  { min: 10, max: 100, color: "#2a78d6", radius: 5.5, label: "10 – 100" },
-  { min: 100, max: 1000, color: "#1c5cab", radius: 6.5, label: "100 – 1,000" },
-  { min: 1000, max: Infinity, color: "#104281", radius: 7.5, label: "1,000 or more" },
+  { min: 0, max: 1, color: "#fde725", radius: 3.5, label: "less than 1" },
+  { min: 1, max: 10, color: "#5ec962", radius: 4.5, label: "1 – 10" },
+  { min: 10, max: 100, color: "#21918c", radius: 5.5, label: "10 – 100" },
+  { min: 100, max: 1000, color: "#3b528b", radius: 6.5, label: "100 – 1,000" },
+  { min: 1000, max: Infinity, color: "#440154", radius: 7.5, label: "1,000 or more" },
 ];
 const ZERO = { color: "#a9a7a0", radius: 2.2 };
+const OUTLINE = "rgba(31, 30, 28, 0.55)";
+const DEFAULT_NET = "CB";      // CalCOFI bongo, the standard net since 1978
 
 const state = {
   taxon: null,          // entry from taxa.json
@@ -178,9 +182,30 @@ function render() {
       ? `Mean of ${n} survey months · ${sampled} stations, ${withCatch} with ${stageWord()}`
       : "No surveys match this season and year range.";
   }
+  renderMapLabel();
   renderLegend();
   if (state.station !== null) renderStationChart();
   writeHash();
+}
+
+// The label on the land side of the map: when, which cruises, which species,
+// stage and net -- so a screenshot or a playing animation explains itself.
+function renderMapLabel() {
+  const t = state.taxon;
+  const net = meta.nets[state.net];
+  const what = `<span class="species">${t.common ? `${t.common} <span class="sci">(${t.scientific})</span>` : `<span class="sci">${t.scientific}</span>`}</span>` +
+    `${titleCase(stageWord())} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
+  if (state.mode === "cruise") {
+    if (!available.length) { $("map-label").innerHTML = ""; return; }
+    const period = meta.periods[available[state.periodPos]];
+    const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
+    $("map-label").innerHTML = `<span class="when">${periodText(available[state.periodPos])}</span>` +
+      `Cruise${period.cruises.length > 1 ? "s" : ""} ${cruises}<br>${what}`;
+  } else {
+    const season = $("season-select").selectedOptions[0].textContent;
+    $("map-label").innerHTML = `<span class="when">${season}, ${state.yearFrom}–${state.yearTo}</span>` +
+      `Mean of ${compositePeriods().length} survey months<br>${what}`;
+  }
 }
 
 function renderLegend() {
@@ -190,7 +215,7 @@ function renderLegend() {
   const items = [`<li><span class="swatch" style="width:${ZERO.radius * 2 + 2}px;height:${ZERO.radius * 2 + 2}px;background:${ZERO.color}"></span>Sampled, none caught</li>`]
     .concat(CLASSES.map((c) => {
       const d = c.radius * 2 + 2;
-      return `<li><span class="swatch" style="width:${d}px;height:${d}px;background:${c.color}"></span>${c.label}</li>`;
+      return `<li><span class="swatch" style="width:${d}px;height:${d}px;background:${c.color};border-color:${OUTLINE}"></span>${c.label}</li>`;
     }));
   $("legend-items").innerHTML = items.join("");
 }
@@ -253,7 +278,7 @@ function renderStationChart() {
     const cls = classOf(d.a);
     const color = cls < 0 ? ZERO.color : CLASSES[cls].color;
     const r = cls < 0 ? 2 : 3.5;
-    parts.push(`<circle cx="${sx(d.x)}" cy="${sy(y(d.a))}" r="${r}" fill="${color}" stroke="#fff" stroke-width="0.8"/>`);
+    parts.push(`<circle cx="${sx(d.x)}" cy="${sy(y(d.a))}" r="${r}" fill="${color}" stroke="${cls < 0 ? "#fff" : OUTLINE}" stroke-width="0.6"/>`);
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Abundance through time at this station">${parts.join("")}</svg>`;
 
@@ -277,6 +302,20 @@ function renderStationChart() {
     tip.style.top = `${(sy(y(best.a)) / H) * rect.height - 30}px`;
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
+  // Clicking a point shows that survey on the map.
+  svg.style.cursor = "pointer";
+  svg.addEventListener("click", (event) => {
+    const rect = svg.getBoundingClientRect();
+    const px = ((event.clientX - rect.left) / rect.width) * W;
+    let best = null;
+    for (const d of series) {
+      if (!best || Math.abs(sx(d.x) - px) < Math.abs(sx(best.x) - px)) best = d;
+    }
+    if (!best || Math.abs(sx(best.x) - px) > 12) return;
+    stopPlay();
+    state.periodPos = available.indexOf(best.p);
+    if (state.mode !== "cruise") setMode("cruise"); else render();
+  });
 
   map.getSource("selected").setData({
     type: "FeatureCollection",
@@ -349,14 +388,25 @@ function setupSpeciesPicker() {
   });
 }
 
+function setupSpeciesSelect() {
+  const label = (t) => (t.common ? `${t.common} — ${t.scientific}` : t.scientific);
+  const sorted = [...taxa].sort((a, b) => label(a).localeCompare(label(b)));
+  $("species-select").innerHTML = sorted
+    .map((t) => `<option value="${t.id}">${label(t)} (${t.rows.toLocaleString()})</option>`).join("");
+  $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
+}
+
 async function selectTaxon(t, resetNet) {
   stopPlay();
   state.taxon = t;
   if (resetNet) {
-    state.net = t.topNet;
+    // The bongo net by default; its most-used net for a species never caught in a bongo.
+    const bongo = meta.nets.findIndex((n) => n.code === DEFAULT_NET);
+    state.net = bongo >= 0 && t.netRows[bongo] > 0 ? bongo : t.topNet;
     if ((meta.stages[state.stage] === "egg" ? t.eggs : t.larvae) === 0) state.stage = t.eggs > 0 ? 0 : 1;
   }
   $("species-input").value = speciesName(t);
+  $("species-select").value = String(t.id);
   $("species-detail").textContent =
     `${t.family ? `${t.family} · ` : ""}${t.larvae.toLocaleString()} larva and ${t.eggs.toLocaleString()} egg records`;
   $("stage-select").value = String(state.stage);
@@ -460,6 +510,7 @@ function setupControls() {
     if (e.key === "ArrowRight" && state.mode === "cruise") { stopPlay(); step(1); }
   });
   setupSpeciesPicker();
+  setupSpeciesSelect();
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -546,8 +597,8 @@ function createMap() {
           paint: {
             "circle-color": ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.color]), ZERO.color],
             "circle-radius": ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius]), ZERO.radius],
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 0.8,
+            "circle-stroke-color": OUTLINE,
+            "circle-stroke-width": 0.6,
           },
         },
         {
@@ -595,6 +646,11 @@ async function init() {
   await createMap();
 
   const start = fromHash.taxon || taxa.find((t) => t.scientific === "Engraulis mordax") || taxa[0];
+  if (!fromHash.taxon) {
+    // Open on the default net's most recent survey.
+    const bongo = meta.nets.findIndex((n) => n.code === DEFAULT_NET);
+    state.net = bongo >= 0 && start.netRows[bongo] > 0 ? bongo : start.topNet;
+  }
   updateAvailable();
   if (fromHash.survey >= 0 && available.includes(fromHash.survey)) state.periodPos = available.indexOf(fromHash.survey);
   else state.periodPos = Math.max(0, available.length - 1);

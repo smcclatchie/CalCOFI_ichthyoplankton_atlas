@@ -23,6 +23,7 @@
                  placeholder="Common or scientific name" aria-autocomplete="list" aria-controls="species-list">
           <ul id="species-list" class="species-list" role="listbox" hidden></ul>
         </div>
+        <select id="species-select" class="species-select" aria-label="Choose a species from the full list"></select>
         <p id="species-detail" class="hint"></p>
       </section>
 
@@ -99,6 +100,7 @@
 
     <section class="map-area">
       <div id="map" aria-label="Map of station abundance"></div>
+      <div id="map-label" class="map-label" aria-live="polite"></div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
       <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
         <header>
