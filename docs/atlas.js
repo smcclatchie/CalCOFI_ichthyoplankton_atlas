@@ -191,6 +191,7 @@ function render() {
   }
   renderMapLabel();
   renderLegend();
+  updateDownloadPanel();
   if (state.station !== null) renderStationChart();
   writeHash();
 }
@@ -406,6 +407,7 @@ function closeStation() {
   state.station = null;
   $("station-panel").hidden = true;
   map.getSource("selected").setData({ type: "FeatureCollection", features: [] });
+  updateDownloadPanel();
   writeHash();
 }
 
@@ -528,7 +530,7 @@ function onFilterChange(keepPeriod = true) {
 function setMode(mode) {
   stopPlay();
   state.mode = mode;
-  document.querySelectorAll(".segmented button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
+  document.querySelectorAll("#view-toggle button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
   $("cruise-controls").hidden = mode !== "cruise";
   $("composite-controls").hidden = mode !== "composite";
   render();
@@ -566,7 +568,8 @@ function setupControls() {
   $("stage-select").addEventListener("change", (e) => { state.stage = Number(e.target.value); render(); });
   $("sampling-select").addEventListener("change", (e) => { state.sampling = Number(e.target.value); onFilterChange(); });
   $("net-select").addEventListener("change", (e) => { state.net = Number(e.target.value); onFilterChange(); });
-  document.querySelectorAll(".segmented button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  document.querySelectorAll("#view-toggle button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  setupDownload();
   $("prev-btn").addEventListener("click", () => { stopPlay(); step(-1); });
   $("next-btn").addEventListener("click", () => { stopPlay(); step(1); });
   $("play-btn").addEventListener("click", togglePlay);
@@ -595,6 +598,182 @@ function setupControls() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { if (state.station !== null) renderStationChart(); }, 150);
   });
+}
+
+// ------------------------------------------------------------ download --
+//
+// CSV downloads of a complete time series for the current net, life stage and
+// sampling type, at one station or along one CalCOFI line:
+//   selected species  one row per sampled survey x station, zeros explicit
+//   all species       one file: a row per survey x station x species with
+//                     abundance > 0, plus one row with blank species fields
+//                     and abundance 0 for each sample with no catch at all, so
+//                     every sample appears and zeros can be rebuilt
+// Headers are snake_case with no spaces.
+
+const dl = { extent: "station", species: "one", line: null };
+const lineCache = new Map();   // line file -> column arrays (all taxa on that line)
+
+const SAMPLE_COLUMNS = ["survey_month", "survey_start", "survey_end", "cruises", "ships", "line", "station",
+  "station_key", "latitude", "longitude", "net", "net_description", "sampling", "life_stage", "n_tows"];
+const SPECIES_COLUMNS = ["taxon_key", "scientific_name", "common_name", "abundance", "units"];
+
+function csvField(v) {
+  if (v === null || v === undefined) return "";
+  const text = String(v);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvText(columns, rows) {
+  return [columns.join(","), ...rows.map((r) => columns.map((c) => csvField(r[c])).join(","))].join("\r\n") + "\r\n";
+}
+
+function saveFile(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const slug = (text) => text.replace(/[^A-Za-z0-9.]+/g, "_").replace(/^_+|_+$/g, "");
+const lineText = (line) => line.toFixed(1);
+
+function downloadLines() {
+  // Lines sampled with the current net and sampling type, numerically.
+  const lines = new Set();
+  for (let i = 0; i < occ.p.length; i++) {
+    if (occ.s[i] === state.sampling && occ.n[i] === state.net) lines.add(meta.stations[occ.st[i]].line);
+  }
+  return [...lines].sort((a, b) => a - b);
+}
+
+function updateDownloadPanel() {
+  const station = state.station === null ? null : meta.stations[state.station];
+  $("dl-station").textContent = station
+    ? `${stationName(state.station)} (click another station to change it).`
+    : "Click a station on the map to choose it.";
+  $("dl-station").hidden = dl.extent !== "station";
+  $("dl-line-row").hidden = dl.extent !== "line";
+
+  const lines = downloadLines();
+  const preferred = dl.line ?? station?.line ?? 90;
+  dl.line = lines.includes(preferred) ? preferred : (lines[0] ?? null);
+  $("dl-line").innerHTML = lines.map((l) => `<option value="${l}">${lineText(l)}</option>`).join("");
+  if (dl.line !== null) $("dl-line").value = String(dl.line);
+
+  const ready = dl.extent === "station" ? station !== null : dl.line !== null;
+  $("dl-button").disabled = !ready;
+  const net = meta.nets[state.net];
+  $("dl-note").textContent =
+    `All survey months sampled with the ${net.code} net, ${stageWord()}, ${meta.samplings[state.sampling]} sampling.` +
+    (dl.species === "all" ? " All species: one row per species caught; a sample with nothing caught has one row with no species. A species absent from a sample was not caught there." : "");
+}
+
+function setToggle(id, value) {
+  document.querySelectorAll(`#${id} button`).forEach((b) => b.setAttribute("aria-checked", String(b.dataset.value === value)));
+}
+
+function setupDownload() {
+  document.querySelectorAll("#dl-extent button").forEach((b) => b.addEventListener("click", () => {
+    dl.extent = b.dataset.value; setToggle("dl-extent", dl.extent); updateDownloadPanel();
+  }));
+  document.querySelectorAll("#dl-species button").forEach((b) => b.addEventListener("click", () => {
+    dl.species = b.dataset.value; setToggle("dl-species", dl.species); updateDownloadPanel();
+  }));
+  $("dl-line").addEventListener("change", (e) => { dl.line = Number(e.target.value); updateDownloadPanel(); });
+  $("dl-button").addEventListener("click", () => {
+    runDownload().catch((err) => { $("status").textContent = `Download failed: ${err.message}`; });
+  });
+}
+
+function sampleRow(i) {
+  const period = meta.periods[occ.p[i]];
+  const station = meta.stations[occ.st[i]];
+  const net = meta.nets[state.net];
+  return {
+    survey_month: period.key,
+    survey_start: period.start,
+    survey_end: period.end,
+    cruises: period.cruises.map((c) => c.key).join(";"),
+    ships: period.ships.map(titleCase).join(";"),
+    line: lineText(station.line),
+    station: station.station.toFixed(1),
+    station_key: station.key,
+    latitude: station.lat,
+    longitude: station.lon,
+    net: net.code,
+    net_description: net.label.replace(/^\w+: /, ""),
+    sampling: meta.samplings[state.sampling],
+    life_stage: meta.stages[state.stage],
+    n_tows: occ.t[i],
+  };
+}
+
+// e.g. "per 10 m²" -> "count_per_10_m2" (no spaces in values either)
+const unitsColumn = () => `count_${meta.nets[state.net].units.replace("m²", "m2").replace("m³", "m3")}`.replace(/\s+/g, "_");
+
+async function runDownload() {
+  const stations = dl.extent === "station"
+    ? new Set([state.station])
+    : new Set(meta.stations.map((s, i) => (s.line === dl.line ? i : -1)).filter((i) => i >= 0));
+  const rows = [];
+  for (let i = 0; i < occ.p.length; i++) {
+    if (occ.s[i] === state.sampling && occ.n[i] === state.net && stations.has(occ.st[i])) rows.push(i);
+  }
+  const station = meta.stations[state.station];
+  rows.sort((a, b) => occ.p[a] - occ.p[b] || meta.stations[occ.st[a]].station - meta.stations[occ.st[b]].station);
+  const where = dl.extent === "station"
+    ? `line${lineText(station.line)}_station${station.station.toFixed(1)}`
+    : `line${lineText(dl.line)}`;
+  const base = `calcofi_ichthyo_${where}_${meta.nets[state.net].code}_${meta.stages[state.stage]}_${slug(meta.samplings[state.sampling])}`;
+  const units = unitsColumn();
+
+  if (dl.species === "one") {
+    const t = state.taxon;
+    const values = taxonCache.get(t.id);
+    const out = rows.map((i) => ({
+      ...sampleRow(i),
+      taxon_key: t.key,
+      scientific_name: t.scientific,
+      common_name: t.common,
+      abundance: values.get(catchKey(occ.p[i], state.sampling, state.net, state.stage, occ.st[i])) || 0,
+      units,
+    }));
+    saveFile(`${base}_${slug(t.scientific)}.csv`, csvText(SAMPLE_COLUMNS.concat(SPECIES_COLUMNS), out));
+    return;
+  }
+
+  // All species: catches from the line file (a station download uses its line's file).
+  const line = dl.extent === "station" ? station.line : dl.line;
+  const file = meta.lines.find((l) => l.line === line)?.file;
+  $("status").textContent = "Preparing download…";
+  if (file && !lineCache.has(file)) lineCache.set(file, await getJSON(`lines/${file}`));
+  const L = file ? lineCache.get(file) : { p: [] };
+  const occByKey = new Map(rows.map((i) => [`${occ.p[i]}|${occ.st[i]}`, i]));
+  const catches = [];
+  for (let k = 0; k < L.p.length; k++) {
+    if (L.s[k] !== state.sampling || L.n[k] !== state.net || L.g[k] !== state.stage) continue;
+    const i = occByKey.get(`${L.p[k]}|${L.st[k]}`);
+    if (i === undefined) continue;
+    const t = taxa[L.t[k]];
+    catches.push({ ...sampleRow(i), taxon_key: t.key, scientific_name: t.scientific, common_name: t.common, abundance: L.a[k], units });
+  }
+  // Samples with nothing caught still get a row, so every sample is in the file.
+  const caught = new Set(catches.map((r) => `${r.survey_month}|${r.station_key}`));
+  for (const i of rows) {
+    const r = sampleRow(i);
+    if (!caught.has(`${r.survey_month}|${r.station_key}`)) {
+      catches.push({ ...r, taxon_key: "", scientific_name: "", common_name: "", abundance: 0, units });
+    }
+  }
+  catches.sort((a, b) => a.survey_month.localeCompare(b.survey_month) || Number(a.station) - Number(b.station)
+    || a.scientific_name.localeCompare(b.scientific_name));
+  $("status").textContent = "";
+  saveFile(`${base}_all_species.csv`, csvText(SAMPLE_COLUMNS.concat(SPECIES_COLUMNS), catches));
 }
 
 // ----------------------------------------------------------------- URL --
@@ -708,7 +887,9 @@ function createMap() {
     map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
     map.on("click", layer, (e) => {
       state.station = e.features[0].properties.st;
+      dl.line = null;          // the line list follows the newly chosen station
       renderStationChart();
+      updateDownloadPanel();
       writeHash();
     });
   }

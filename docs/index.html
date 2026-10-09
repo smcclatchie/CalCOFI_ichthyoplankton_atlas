@@ -49,7 +49,7 @@
 
       <section class="control">
         <span class="label">View</span>
-        <div class="segmented" role="radiogroup" aria-label="View">
+        <div class="segmented" id="view-toggle" role="radiogroup" aria-label="View">
           <button type="button" role="radio" data-mode="cruise" aria-checked="true">Single survey</button>
           <button type="button" role="radio" data-mode="composite" aria-checked="false">Composite</button>
         </div>
@@ -86,6 +86,25 @@
           </div>
         </div>
         <p id="composite-label" class="period-label"></p>
+      </section>
+
+      <section class="control download" aria-label="Download data">
+        <span class="label">Download CSV</span>
+        <div class="segmented" id="dl-extent" role="radiogroup" aria-label="Download extent">
+          <button type="button" role="radio" data-value="station" aria-checked="true">One station</button>
+          <button type="button" role="radio" data-value="line" aria-checked="false">Whole line</button>
+        </div>
+        <p id="dl-station" class="hint"></p>
+        <div id="dl-line-row" class="dl-row" hidden>
+          <label for="dl-line">Line</label>
+          <select id="dl-line"></select>
+        </div>
+        <div class="segmented" id="dl-species" role="radiogroup" aria-label="Species to download">
+          <button type="button" role="radio" data-value="one" aria-checked="true">Selected species</button>
+          <button type="button" role="radio" data-value="all" aria-checked="false">All species</button>
+        </div>
+        <button type="button" id="dl-button" class="download-button">Download</button>
+        <p id="dl-note" class="hint"></p>
       </section>
 
       <section class="control legend" aria-label="Legend">

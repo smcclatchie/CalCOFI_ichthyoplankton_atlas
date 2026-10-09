@@ -16,6 +16,9 @@ selection and standardisation rule; this script only reshapes its output:
   docs/data/taxa/<i>.json     one file per taxon, loaded on demand: the
                               non-zero catches (survey month, sampling, net,
                               life stage, station, abundance)
+  docs/data/lines/<line>.json one file per CalCOFI line with every taxon's
+                              non-zero catches on that line (t = taxon id),
+                              for the atlas's all-species CSV downloads
   docs/data/land.geojson      Natural Earth 1:50m land, clipped to the region
 
 The atlas steps by *survey month* (year-month): cruises by different ships
@@ -172,6 +175,25 @@ def main():
                      "rows": int(r.rows), "eggs": r.eggs, "larvae": r.larvae,
                      "topNet": index["net"][r.top_net],
                      "netRows": r.net_rows})          # records per net, in meta.nets order
+
+    # ---- per-line files: all taxa on one CalCOFI line, for CSV downloads ----
+    taxon_id = {t["key"]: t["id"] for t in taxa}
+    lines_dir = os.path.join(args.out_dir, "lines")
+    shutil.rmtree(lines_dir, ignore_errors=True)
+    os.makedirs(lines_dir)
+    c["line"] = c.site_key.str[:5].astype(float)
+    meta["lines"] = []
+    for line, t in c.groupby("line"):
+        name = f"{line:05.1f}.json"
+        dump({"p": t.period.map(index["period"]).tolist(),
+              "s": t.sampling.map(index["sampling"]).tolist(),
+              "n": t.net_type.map(index["net"]).tolist(),
+              "g": t.life_stage.map(index["stage"]).tolist(),
+              "st": t.site_key.map(index["station"]).tolist(),
+              "t": t.taxon_key.map(taxon_id).tolist(),
+              "a": t.abundance.tolist()},
+             os.path.join(lines_dir, name))
+        meta["lines"].append({"line": line, "file": name})
 
     # ---- coastline: Natural Earth 1:50m land clipped to the region ----
     land_shp = shpreader.natural_earth(resolution="50m", category="physical", name="land")

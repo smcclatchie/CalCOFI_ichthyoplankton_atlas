@@ -148,6 +148,22 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .segmented button[aria-checked="true"] { background: var(--accent); color: #fff; }
 
 .stepper { display: flex; gap: 6px; }
+
+.download .segmented { margin-top: 6px; }
+.download .hint { margin-top: 6px; }
+.dl-row { margin-top: 6px; }
+.download-button {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.download-button:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; }
 .stepper button {
   padding: 5px 10px;
   border: 1px solid var(--border);
