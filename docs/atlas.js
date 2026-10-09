@@ -617,15 +617,15 @@ const lineCache = new Map();   // line file -> column arrays (all taxa on that l
 const SAMPLE_COLUMNS = ["survey_month", "survey_start", "survey_end", "cruises", "ships", "line", "station",
   "station_key", "latitude", "longitude", "net", "net_description", "sampling", "life_stage", "n_tows"];
 const SPECIES_COLUMNS = ["taxon_key", "scientific_name", "common_name", "abundance", "units"];
+// Written bare; every other column (and the header row) is quoted, as with
+// R's write.csv or pandas QUOTE_NONNUMERIC.
+const NUMERIC_COLUMNS = new Set(["line", "station", "latitude", "longitude", "n_tows", "abundance"]);
 
-function csvField(v) {
-  if (v === null || v === undefined) return "";
-  const text = String(v);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
+const quoted = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
 function csvText(columns, rows) {
-  return [columns.join(","), ...rows.map((r) => columns.map((c) => csvField(r[c])).join(","))].join("\r\n") + "\r\n";
+  const line = (r) => columns.map((c) => (NUMERIC_COLUMNS.has(c) ? String(r[c] ?? "") : quoted(r[c]))).join(",");
+  return [columns.map(quoted).join(","), ...rows.map(line)].join("\r\n") + "\r\n";
 }
 
 function saveFile(name, text) {
@@ -698,8 +698,8 @@ function sampleRow(i) {
     survey_month: period.key,
     survey_start: period.start,
     survey_end: period.end,
-    cruises: period.cruises.map((c) => c.key).join(";"),
-    ships: period.ships.map(titleCase).join(";"),
+    cruises: period.cruises.map((c) => c.key).join(":"),
+    ships: period.ships.map(titleCase).join(":"),
     line: lineText(station.line),
     station: station.station.toFixed(1),
     station_key: station.key,
