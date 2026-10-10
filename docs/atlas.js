@@ -613,6 +613,8 @@ function setupControls() {
 // 95th percentile of all samples would often be 0.
 
 const HIGH_PERCENTILE = 0.95;
+const HIGH_DOT_COLOR = "#7a7974";        // neutral grey for all top-5% samples
+const HIGH_SELECTED_COLOR = "#d62728";   // the selected sample
 let highOpen = false;
 let highSelected = null;       // {p, st} of the dot last clicked
 
@@ -707,11 +709,12 @@ function renderHighCounts() {
     d.zy = zt + 5 + jitter * (zb - zt - 10);
   });
 
-  for (const d of dots) {
-    const cls = classOf(d.a);
-    const isSel = highSelected && highSelected.p === d.p && highSelected.st === d.st;
-    const style = `fill="${CLASSES[cls].color}" stroke="${isSel ? "#1f1e1c" : OUTLINE}" stroke-width="${isSel ? 2 : 0.6}"`;
-    parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="${isSel ? 5 : 3.5}" ${style}/>`);
+  // One neutral colour for every sample; the selected one red, same size,
+  // drawn last so it is never hidden under its neighbours.
+  const isSel = (d) => highSelected && highSelected.p === d.p && highSelected.st === d.st;
+  for (const d of [...dots.filter((x) => !isSel(x)), ...dots.filter(isSel)]) {
+    const fill = isSel(d) ? HIGH_SELECTED_COLOR : HIGH_DOT_COLOR;
+    parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.5" fill="${fill}" stroke="#ffffff" stroke-width="0.6"/>`);
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts with the top 5% as clickable points">${parts.join("")}</svg>`;
 
