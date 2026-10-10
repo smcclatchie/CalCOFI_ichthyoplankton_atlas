@@ -607,8 +607,8 @@ function setupControls() {
 //
 // Distribution of every non-zero count for the selected species, net, life
 // stage and sampling type over the whole record (histogram of log10 counts),
-// with the 95th percentile marked. Counts at or above it are drawn over the
-// histogram as dots; clicking one shows that survey and station on the map.
+// with the 95th percentile marked. Counts at or above it are drawn as dots in
+// a zoomed strip below; clicking one shows that survey and station on the map.
 // Zeros are left out: for most species most samples catch nothing, so the
 // 95th percentile of all samples would often be 0.
 
@@ -653,9 +653,9 @@ function renderHighCounts() {
   const p95 = quantile(sorted, HIGH_PERCENTILE);
   const high = counts.filter((c) => c.a >= p95).sort((a, b) => a.a - b.a);
 
-  // Top: histogram of all non-zero counts with the top 5% overlaid as dots.
-  // Bottom: the same top-5% dots on their own zoomed axis (95th percentile to
-  // maximum), spread across the full width so single samples can be picked.
+  // Top: histogram of all non-zero counts, 95-100% range shaded.
+  // Bottom: the top-5% samples as dots on their own zoomed axis (95th
+  // percentile to maximum), spread across the full width so they can be picked.
   const W = box.clientWidth || 440, Htot = box.clientHeight || 270;
   const H = 175;                                  // histogram height; the zoomed strip uses the rest
   const m = { l: 40, r: 24, t: 8, b: 26 };
@@ -689,11 +689,7 @@ function renderHighCounts() {
   parts.push(`<line x1="${xp}" x2="${xp}" y1="${m.t}" y2="${H - m.b}" stroke="#1f1e1c" stroke-dasharray="4 3"/>`);
   parts.push(`<text x="${xp - 4}" y="${m.t + 11}" text-anchor="end" font-size="11" fill="#1f1e1c">95th percentile</text>`);
 
-  // High counts as dots over the histogram, spread vertically (deterministic jitter).
-  const dots = high.map((c, i) => {
-    const jitter = ((Math.sin(i * 12.9898 + c.st * 78.233) * 43758.5453) % 1 + 1) % 1;
-    return { ...c, x: sx(lx(c.a)), y: m.t + 14 + jitter * (H - m.t - m.b - 22) };
-  });
+  const dots = high.map((c) => ({ ...c }));
   // Zoomed strip: log axis from the 95th percentile to the maximum.
   const zt = H + 16, zb = Htot - 22;              // strip top / bottom
   const z0 = lx(p95), z1 = Math.max(lx(sorted[sorted.length - 1]), z0 + 0.01);
@@ -701,7 +697,7 @@ function renderHighCounts() {
   parts.push(`<rect x="${m.l}" y="${zt}" width="${W - m.l - m.r}" height="${zb - zt}" fill="#f6efe0"/>`);
   parts.push(`<line x1="${xp}" x2="${m.l}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
   parts.push(`<line x1="${sx(x1)}" x2="${W - m.r}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
-  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">Top 5%, zoomed: click a dot</text>`);
+  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">Top 5% samples: click a dot</text>`);
   for (const v of [p95, 10 ** ((z0 + z1) / 2), sorted[sorted.length - 1]]) {
     parts.push(`<text x="${zx(lx(v))}" y="${Htot - 6}" text-anchor="middle" font-size="11" fill="#85837c">${fmt(v)}</text>`);
   }
@@ -715,7 +711,6 @@ function renderHighCounts() {
     const cls = classOf(d.a);
     const isSel = highSelected && highSelected.p === d.p && highSelected.st === d.st;
     const style = `fill="${CLASSES[cls].color}" stroke="${isSel ? "#1f1e1c" : OUTLINE}" stroke-width="${isSel ? 2 : 0.6}"`;
-    parts.push(`<circle cx="${d.x}" cy="${d.y}" r="${isSel ? 5 : 3.5}" ${style}/>`);
     parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="${isSel ? 5 : 3.5}" ${style}/>`);
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts with the top 5% as clickable points">${parts.join("")}</svg>`;
@@ -729,13 +724,11 @@ function renderHighCounts() {
   const nearest = (event) => {
     const r = svg.getBoundingClientRect();
     const px = ((event.clientX - r.left) / r.width) * W, py = ((event.clientY - r.top) / r.height) * Htot;
-    const inStrip = py > H;
     let best = null, bestD = Infinity;
     for (const d of dots) {
-      const dd = inStrip ? (d.zx - px) ** 2 + (d.zy - py) ** 2 : (d.x - px) ** 2 + (d.y - py) ** 2;
+      const dd = (d.zx - px) ** 2 + (d.zy - py) ** 2;
       if (dd < bestD) { best = d; bestD = dd; }
     }
-    if (best) best.tipX = inStrip ? best.zx : best.x, best.tipY = inStrip ? best.zy : best.y;
     return bestD <= 64 ? best : null;
   };
   svg.addEventListener("mousemove", (event) => {
@@ -744,8 +737,8 @@ function renderHighCounts() {
     tip.hidden = false;
     tip.textContent = `${fmt(d.a)} ${unitsLabel()} · ${stationName(d.st)} · ${periodText(d.p)}`;
     const r = svg.getBoundingClientRect();
-    tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, (d.tipX / W) * r.width - tip.offsetWidth / 2))}px`;
-    tip.style.top = `${(d.tipY / Htot) * r.height - 30}px`;
+    tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, (d.zx / W) * r.width - tip.offsetWidth / 2))}px`;
+    tip.style.top = `${(d.zy / Htot) * r.height - 30}px`;
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
   svg.addEventListener("click", (event) => {
@@ -755,7 +748,7 @@ function renderHighCounts() {
 
   $("high-note").textContent =
     `${counts.length.toLocaleString()} non-zero counts; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
-    `${high.length.toLocaleString()} samples at or above it are shown as dots: click one to show its station and survey. ` +
+    `${high.length.toLocaleString()} samples at or above it are shown as dots in the strip: click one to show its station and survey. ` +
     `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.`;
 }
 
