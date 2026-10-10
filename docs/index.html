@@ -88,6 +88,12 @@
         <p id="composite-label" class="period-label"></p>
       </section>
 
+      <section class="control">
+        <span class="label">High counts</span>
+        <button type="button" id="high-toggle" class="secondary-button" aria-pressed="false">Show distribution and top 5%</button>
+        <p class="hint">Find the stations and surveys with the highest counts (95th percentile and above) for the selected species, net, life stage and sampling.</p>
+      </section>
+
       <section class="control download" aria-label="Download data">
         <span class="label">Download CSV</span>
         <div class="segmented" id="dl-extent" role="radiogroup" aria-label="Download extent">
@@ -124,6 +130,14 @@
       <div id="map" aria-label="Map of station abundance"></div>
       <div id="map-label" class="map-label" aria-live="polite"></div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
+      <section id="high-panel" class="high-panel" hidden aria-label="Distribution of counts">
+        <header>
+          <h2 id="high-title"></h2>
+          <button type="button" id="high-close" aria-label="Close distribution">✕</button>
+        </header>
+        <div id="high-chart"></div>
+        <p id="high-note" class="hint"></p>
+      </section>
       <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
         <header>
           <h2 id="station-title"></h2>

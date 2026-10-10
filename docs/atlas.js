@@ -72,6 +72,7 @@ async function loadTaxon(id) {
   const t = await getJSON(`taxa/${id}.json`);
   const values = new Map();
   for (let i = 0; i < t.a.length; i++) values.set(catchKey(t.p[i], t.s[i], t.n[i], t.g[i], t.st[i]), t.a[i]);
+  values.raw = t;              // column arrays, for the high-count distribution
   taxonCache.set(id, values);
   return values;
 }
@@ -192,6 +193,7 @@ function render() {
   renderMapLabel();
   renderLegend();
   updateDownloadPanel();
+  renderHighCounts();
   if (state.station !== null) renderStationChart();
   writeHash();
 }
@@ -570,6 +572,7 @@ function setupControls() {
   $("net-select").addEventListener("change", (e) => { state.net = Number(e.target.value); onFilterChange(); });
   document.querySelectorAll("#view-toggle button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   setupDownload();
+  setupHighCounts();
   $("prev-btn").addEventListener("click", () => { stopPlay(); step(-1); });
   $("next-btn").addEventListener("click", () => { stopPlay(); step(1); });
   $("play-btn").addEventListener("click", togglePlay);
@@ -596,8 +599,181 @@ function setupControls() {
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (state.station !== null) renderStationChart(); }, 150);
+    resizeTimer = setTimeout(() => { if (state.station !== null) renderStationChart(); renderHighCounts(); }, 150);
   });
+}
+
+// --------------------------------------------------------- high counts --
+//
+// Distribution of every non-zero count for the selected species, net, life
+// stage and sampling type over the whole record (histogram of log10 counts),
+// with the 95th percentile marked. Counts at or above it are drawn over the
+// histogram as dots; clicking one shows that survey and station on the map.
+// Zeros are left out: for most species most samples catch nothing, so the
+// 95th percentile of all samples would often be 0.
+
+const HIGH_PERCENTILE = 0.95;
+let highOpen = false;
+let highSelected = null;       // {p, st} of the dot last clicked
+
+function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+function highCountData() {
+  const t = taxonCache.get(state.taxon.id).raw;
+  const counts = [];
+  for (let i = 0; i < t.a.length; i++) {
+    if (t.s[i] === state.sampling && t.n[i] === state.net && t.g[i] === state.stage) {
+      counts.push({ a: t.a[i], p: t.p[i], st: t.st[i] });
+    }
+  }
+  let samples = 0;
+  for (let i = 0; i < occ.p.length; i++) if (occ.s[i] === state.sampling && occ.n[i] === state.net) samples++;
+  return { counts, samples };
+}
+
+function renderHighCounts() {
+  $("high-panel").hidden = !highOpen;
+  $("high-toggle").setAttribute("aria-pressed", String(highOpen));
+  if (!highOpen) return;
+  const { counts, samples } = highCountData();
+  const net = meta.nets[state.net];
+  $("high-title").textContent =
+    `${speciesName(state.taxon)}, ${stageWord()}, ${net.code} net, ${meta.samplings[state.sampling]} sampling`;
+  const box = $("high-chart");
+  if (counts.length < 2) {
+    box.innerHTML = "";
+    $("high-note").textContent = `Too few non-zero counts (${counts.length}) to form a distribution.`;
+    return;
+  }
+  const sorted = counts.map((c) => c.a).sort((a, b) => a - b);
+  const p95 = quantile(sorted, HIGH_PERCENTILE);
+  const high = counts.filter((c) => c.a >= p95).sort((a, b) => a.a - b.a);
+
+  // Top: histogram of all non-zero counts with the top 5% overlaid as dots.
+  // Bottom: the same top-5% dots on their own zoomed axis (95th percentile to
+  // maximum), spread across the full width so single samples can be picked.
+  const W = box.clientWidth || 440, Htot = box.clientHeight || 270;
+  const H = 175;                                  // histogram height; the zoomed strip uses the rest
+  const m = { l: 40, r: 24, t: 8, b: 26 };
+  const lx = (a) => Math.log10(a);
+  const x0 = Math.floor(lx(sorted[0])), x1 = Math.max(x0 + 1, Math.ceil(lx(sorted[sorted.length - 1])));
+  const sx = (v) => m.l + ((v - x0) / (x1 - x0)) * (W - m.l - m.r);
+  const bins = 36, bw = (x1 - x0) / bins;
+  const hist = new Array(bins).fill(0);
+  for (const a of sorted) hist[Math.min(bins - 1, Math.floor((lx(a) - x0) / bw))]++;
+  const hMax = Math.max(...hist);
+  const sy = (n) => H - m.b - (n / hMax) * (H - m.t - m.b);
+
+  const parts = [];
+  // shaded 95-100 percentile range
+  parts.push(`<rect x="${sx(lx(p95))}" y="${m.t}" width="${sx(x1) - sx(lx(p95))}" height="${H - m.t - m.b}" fill="#f6efe0"/>`);
+  for (let k = 0; k < bins; k++) {
+    if (!hist[k]) continue;
+    const xa = sx(x0 + k * bw), xb = sx(x0 + (k + 1) * bw);
+    parts.push(`<rect x="${xa + 0.5}" y="${sy(hist[k])}" width="${Math.max(0.5, xb - xa - 1)}" height="${H - m.b - sy(hist[k])}" fill="#c9c7bf"/>`);
+  }
+  for (let e = x0; e <= x1; e++) {
+    const v = 10 ** e;
+    parts.push(`<line x1="${sx(e)}" x2="${sx(e)}" y1="${H - m.b}" y2="${H - m.b + 4}" stroke="#85837c"/>`);
+    parts.push(`<text x="${sx(e)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="#85837c">${v >= 1 ? v.toLocaleString() : v}</text>`);
+  }
+  parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="#85837c"/>`);
+  parts.push(`<text x="${m.l - 6}" y="${m.t + 10}" text-anchor="end" font-size="11" fill="#85837c">${hMax}</text>`);
+  parts.push(`<text x="${m.l - 6}" y="${H - m.b}" text-anchor="end" font-size="11" fill="#85837c">0</text>`);
+  parts.push(`<text transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" font-size="11" fill="#85837c">samples</text>`);
+  const xp = sx(lx(p95));
+  parts.push(`<line x1="${xp}" x2="${xp}" y1="${m.t}" y2="${H - m.b}" stroke="#1f1e1c" stroke-dasharray="4 3"/>`);
+  parts.push(`<text x="${xp - 4}" y="${m.t + 11}" text-anchor="end" font-size="11" fill="#1f1e1c">95th percentile</text>`);
+
+  // High counts as dots over the histogram, spread vertically (deterministic jitter).
+  const dots = high.map((c, i) => {
+    const jitter = ((Math.sin(i * 12.9898 + c.st * 78.233) * 43758.5453) % 1 + 1) % 1;
+    return { ...c, x: sx(lx(c.a)), y: m.t + 14 + jitter * (H - m.t - m.b - 22) };
+  });
+  // Zoomed strip: log axis from the 95th percentile to the maximum.
+  const zt = H + 16, zb = Htot - 22;              // strip top / bottom
+  const z0 = lx(p95), z1 = Math.max(lx(sorted[sorted.length - 1]), z0 + 0.01);
+  const zx = (v) => m.l + ((v - z0) / (z1 - z0)) * (W - m.l - m.r);
+  parts.push(`<rect x="${m.l}" y="${zt}" width="${W - m.l - m.r}" height="${zb - zt}" fill="#f6efe0"/>`);
+  parts.push(`<line x1="${xp}" x2="${m.l}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
+  parts.push(`<line x1="${sx(x1)}" x2="${W - m.r}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
+  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">Top 5%, zoomed: click a dot</text>`);
+  for (const v of [p95, 10 ** ((z0 + z1) / 2), sorted[sorted.length - 1]]) {
+    parts.push(`<text x="${zx(lx(v))}" y="${Htot - 6}" text-anchor="middle" font-size="11" fill="#85837c">${fmt(v)}</text>`);
+  }
+  dots.forEach((d, i) => {
+    const jitter = ((Math.sin(i * 39.3467 + d.st * 11.135) * 24634.6345) % 1 + 1) % 1;
+    d.zx = zx(lx(d.a));
+    d.zy = zt + 5 + jitter * (zb - zt - 10);
+  });
+
+  for (const d of dots) {
+    const cls = classOf(d.a);
+    const isSel = highSelected && highSelected.p === d.p && highSelected.st === d.st;
+    const style = `fill="${CLASSES[cls].color}" stroke="${isSel ? "#1f1e1c" : OUTLINE}" stroke-width="${isSel ? 2 : 0.6}"`;
+    parts.push(`<circle cx="${d.x}" cy="${d.y}" r="${isSel ? 5 : 3.5}" ${style}/>`);
+    parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="${isSel ? 5 : 3.5}" ${style}/>`);
+  }
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts with the top 5% as clickable points">${parts.join("")}</svg>`;
+
+  const tip = document.createElement("div");
+  tip.className = "chart-tip";
+  tip.hidden = true;
+  box.appendChild(tip);
+  const svg = box.querySelector("svg");
+  svg.style.cursor = "pointer";
+  const nearest = (event) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((event.clientX - r.left) / r.width) * W, py = ((event.clientY - r.top) / r.height) * Htot;
+    const inStrip = py > H;
+    let best = null, bestD = Infinity;
+    for (const d of dots) {
+      const dd = inStrip ? (d.zx - px) ** 2 + (d.zy - py) ** 2 : (d.x - px) ** 2 + (d.y - py) ** 2;
+      if (dd < bestD) { best = d; bestD = dd; }
+    }
+    if (best) best.tipX = inStrip ? best.zx : best.x, best.tipY = inStrip ? best.zy : best.y;
+    return bestD <= 64 ? best : null;
+  };
+  svg.addEventListener("mousemove", (event) => {
+    const d = nearest(event);
+    if (!d) { tip.hidden = true; return; }
+    tip.hidden = false;
+    tip.textContent = `${fmt(d.a)} ${unitsLabel()} · ${stationName(d.st)} · ${periodText(d.p)}`;
+    const r = svg.getBoundingClientRect();
+    tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, (d.tipX / W) * r.width - tip.offsetWidth / 2))}px`;
+    tip.style.top = `${(d.tipY / Htot) * r.height - 30}px`;
+  });
+  svg.addEventListener("mouseleave", () => { tip.hidden = true; });
+  svg.addEventListener("click", (event) => {
+    const d = nearest(event);
+    if (d) goToSample(d);
+  });
+
+  $("high-note").textContent =
+    `${counts.length.toLocaleString()} non-zero counts; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
+    `${high.length.toLocaleString()} samples at or above it are shown as dots: click one to show its station and survey. ` +
+    `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.`;
+}
+
+function goToSample(d) {
+  stopPlay();
+  highSelected = { p: d.p, st: d.st };
+  state.periodPos = available.indexOf(d.p);
+  state.station = d.st;
+  dl.line = null;
+  if (state.mode !== "cruise") setMode("cruise"); else render();
+  renderStationChart();
+  const s = meta.stations[d.st];
+  if (!map.getBounds().contains([s.lon, s.lat])) map.easeTo({ center: [s.lon, s.lat] });
+}
+
+function setupHighCounts() {
+  $("high-toggle").addEventListener("click", () => { highOpen = !highOpen; renderHighCounts(); });
+  $("high-close").addEventListener("click", () => { highOpen = false; renderHighCounts(); });
 }
 
 // ------------------------------------------------------------ download --
