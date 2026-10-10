@@ -162,12 +162,24 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .secondary-button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 
 /* Distribution of counts, over the open ocean (top left). */
-.high-panel {
+/* Distribution + survey-month panels, stacked over the open ocean (top left).
+   When the station chart is open the column stops above it and scrolls. */
+.left-panels {
   position: absolute;
   z-index: 3;
   top: 12px;
   left: 12px;
   width: min(460px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.left-panels[hidden] { display: none; }
+.map-area.station-open .left-panels { max-height: calc(100% - 260px); }
+.high-panel {
+  flex: none;
   padding: 8px 12px 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -177,7 +189,11 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .high-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .high-panel h2 { margin: 0; font-size: 13px; font-weight: 600; }
 .high-panel header button { border: 0; background: none; font-size: 16px; cursor: pointer; color: var(--text-secondary); }
-#high-chart { position: relative; height: 270px; }
+#high-chart { position: relative; height: 250px; }
+#cruise-chart { position: relative; height: 168px; }
+#cruise-chart svg { width: 100%; height: 100%; display: block; }
+.swatch-sq { display: inline-block; width: 9px; height: 9px; margin: 0 2px 0 6px; vertical-align: -1px; border-radius: 2px; }
+.cruise-legend { display: inline-block; margin-top: 2px; }
 #high-chart svg { width: 100%; height: 100%; display: block; }
 .high-panel .hint { margin: 2px 0 0; }
 

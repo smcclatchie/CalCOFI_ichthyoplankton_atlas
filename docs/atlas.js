@@ -325,6 +325,7 @@ function renderStationChart() {
   const st = state.station;
   const series = stationSeries(st);
   $("station-panel").hidden = false;
+  document.querySelector(".map-area").classList.add("station-open");
   $("station-title").textContent =
     `${stationName(st)} — ${speciesName(state.taxon)}, ${stageWord()} ${meta.nets[state.net].units}, ` +
     `${meta.nets[state.net].code} net, ${meta.samplings[state.sampling]} sampling (${series.length} surveys)`;
@@ -408,6 +409,7 @@ function renderStationChart() {
 function closeStation() {
   state.station = null;
   $("station-panel").hidden = true;
+  document.querySelector(".map-area").classList.remove("station-open");
   map.getSource("selected").setData({ type: "FeatureCollection", features: [] });
   updateDownloadPanel();
   writeHash();
@@ -638,7 +640,7 @@ function highCountData() {
 }
 
 function renderHighCounts() {
-  $("high-panel").hidden = !highOpen;
+  $("left-panels").hidden = !highOpen;
   $("high-toggle").setAttribute("aria-pressed", String(highOpen));
   if (!highOpen) return;
   const { counts, samples } = highCountData();
@@ -649,6 +651,7 @@ function renderHighCounts() {
   if (counts.length < 2) {
     box.innerHTML = "";
     $("high-note").textContent = `Too few non-zero counts (${counts.length}) to form a distribution.`;
+    renderHighCruises([]);
     return;
   }
   const sorted = counts.map((c) => c.a).sort((a, b) => a - b);
@@ -659,7 +662,7 @@ function renderHighCounts() {
   // Bottom: the top-5% samples as dots on their own zoomed axis (95th
   // percentile to maximum), spread across the full width so they can be picked.
   const W = box.clientWidth || 440, Htot = box.clientHeight || 270;
-  const H = 175;                                  // histogram height; the zoomed strip uses the rest
+  const H = Htot - 95;                            // histogram height; the zoomed strip uses the rest
   const m = { l: 40, r: 24, t: 8, b: 26 };
   const lx = (a) => Math.log10(a);
   const x0 = Math.floor(lx(sorted[0])), x1 = Math.max(x0 + 1, Math.ceil(lx(sorted[sorted.length - 1])));
@@ -753,6 +756,112 @@ function renderHighCounts() {
     `${counts.length.toLocaleString()} non-zero counts; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
     `${high.length.toLocaleString()} samples at or above it are shown as dots in the strip: click one to show its station and survey. ` +
     `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.`;
+  renderHighCruises(high);
+}
+
+// Survey-month calendar of the top-5% samples: years across, months down, so
+// the years and seasons of the high counts show at a glance. Blank = not
+// sampled with this net and sampling type; grey = sampled, no top-5% sample;
+// orange (darker = more) = survey months holding top-5% samples.
+const CRUISE_BINS = [
+  { min: 1, max: 1, color: "#fdd0a2", label: "1" },
+  { min: 2, max: 4, color: "#fd8d3c", label: "2–4" },
+  { min: 5, max: 9, color: "#e6550d", label: "5–9" },
+  { min: 10, max: Infinity, color: "#a63603", label: "10+" },
+];
+const SAMPLED_NO_TOP = "#e4e2db";
+const MONTH_LETTERS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+
+function renderHighCruises(high) {
+  const box = $("cruise-chart");
+  if (!high.length || !available.length) {
+    box.innerHTML = "";
+    $("cruise-note").textContent = "";
+    return;
+  }
+  const top = new Map();       // period -> number of top-5% samples
+  for (const c of high) top.set(c.p, (top.get(c.p) || 0) + 1);
+  const sampled = new Map();   // period -> stations sampled
+  for (let i = 0; i < occ.p.length; i++) {
+    if (occ.s[i] === state.sampling && occ.n[i] === state.net) sampled.set(occ.p[i], (sampled.get(occ.p[i]) || 0) + 1);
+  }
+  const years = available.map((p) => meta.periods[p].year);
+  const y0 = Math.min(...years), y1 = Math.max(...years);
+  const W = box.clientWidth || 440, H = box.clientHeight || 168;
+  const m = { l: 18, r: 6, t: 4, b: 18 };
+  const cw = (W - m.l - m.r) / (y1 - y0 + 1), ch = (H - m.t - m.b) / 12;
+  const cellAt = new Map();    // "year-month" -> period
+  const parts = [];
+  const current = state.mode === "cruise" ? available[state.periodPos] : null;
+  let selectedRect = "";
+  for (const p of available) {
+    const period = meta.periods[p];
+    cellAt.set(`${period.year}-${period.month}`, p);
+    const x = m.l + (period.year - y0) * cw, y = m.t + (period.month - 1) * ch;
+    const n = top.get(p) || 0;
+    const fill = n ? CRUISE_BINS.find((b) => n >= b.min && n <= b.max).color : SAMPLED_NO_TOP;
+    parts.push(`<rect x="${x + 0.3}" y="${y + 0.3}" width="${Math.max(0.8, cw - 0.6)}" height="${ch - 0.6}" fill="${fill}"/>`);
+    if (p === current) {
+      selectedRect = `<rect x="${x - 0.5}" y="${y - 0.5}" width="${cw + 1}" height="${ch + 1}" fill="none" stroke="#1f1e1c" stroke-width="1.5"/>`;
+    }
+  }
+  parts.push(selectedRect);
+  MONTH_LETTERS.forEach((l, i) => parts.push(
+    `<text x="${m.l - 5}" y="${m.t + (i + 0.5) * ch + 3.5}" text-anchor="end" font-size="9" fill="#85837c">${l}</text>`));
+  for (let yr = Math.ceil(y0 / 10) * 10; yr <= y1; yr += 10) {
+    parts.push(`<text x="${m.l + (yr - y0 + 0.5) * cw}" y="${H - 5}" text-anchor="middle" font-size="10" fill="#85837c">${yr}</text>`);
+  }
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Survey months holding top 5% samples, by year and month">${parts.join("")}</svg>`;
+
+  const tip = document.createElement("div");
+  tip.className = "chart-tip";
+  tip.hidden = true;
+  box.appendChild(tip);
+  const svg = box.querySelector("svg");
+  const periodAt = (event) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((event.clientX - r.left) / r.width) * W, py = ((event.clientY - r.top) / r.height) * H;
+    const year = y0 + Math.floor((px - m.l) / cw), month = 1 + Math.floor((py - m.t) / ch);
+    return cellAt.get(`${year}-${month}`);
+  };
+  svg.addEventListener("mousemove", (event) => {
+    const p = periodAt(event);
+    if (p === undefined) { tip.hidden = true; svg.style.cursor = ""; return; }
+    svg.style.cursor = "pointer";
+    const period = meta.periods[p];
+    const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
+    tip.hidden = false;
+    tip.textContent = `${periodText(p)}: ${top.get(p) || 0} of ${sampled.get(p) || 0} samples in the top 5% · ${cruises}`;
+    const r = svg.getBoundingClientRect();
+    const cx = ((m.l + (period.year - y0 + 0.5) * cw) / W) * r.width;
+    tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, cx - tip.offsetWidth / 2))}px`;
+    tip.style.top = `${((m.t + (period.month - 1) * ch) / H) * r.height - 30}px`;
+  });
+  svg.addEventListener("mouseleave", () => { tip.hidden = true; });
+  svg.addEventListener("click", (event) => {
+    const p = periodAt(event);
+    if (p === undefined) return;
+    stopPlay();
+    state.periodPos = available.indexOf(p);
+    if (state.mode !== "cruise") setMode("cruise"); else render();
+  });
+
+  // Summary: top-5% samples by season and by decade.
+  const bySeason = { winter: 0, spring: 0, summer: 0, autumn: 0 };
+  const byDecade = new Map();
+  for (const c of high) {
+    const period = meta.periods[c.p];
+    bySeason[period.season]++;
+    const dec = Math.floor(period.year / 10) * 10;
+    byDecade.set(dec, (byDecade.get(dec) || 0) + 1);
+  }
+  const decades = [...byDecade].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([d, n]) => `${d}s (${n})`).join(", ");
+  const legend = [`<span class="swatch-sq" style="background:${SAMPLED_NO_TOP}"></span>sampled, none`]
+    .concat(CRUISE_BINS.map((b) => `<span style="white-space:nowrap"><span class="swatch-sq" style="background:${b.color}"></span>${b.label}</span>`)).join(" ");
+  $("cruise-note").innerHTML =
+    `${top.size} survey months hold top-5% samples. By season: winter ${bySeason.winter}, spring ${bySeason.spring}, ` +
+    `summer ${bySeason.summer}, autumn ${bySeason.autumn}. Most in the ${decades}. Click a month to show it on the map.` +
+    `<br><span class="cruise-legend">Top-5% samples per survey month: ${legend}</span>`;
 }
 
 function goToSample(d) {

@@ -130,14 +130,21 @@
       <div id="map" aria-label="Map of station abundance"></div>
       <div id="map-label" class="map-label" aria-live="polite"></div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
-      <section id="high-panel" class="high-panel" hidden aria-label="Distribution of counts">
-        <header>
-          <h2 id="high-title"></h2>
-          <button type="button" id="high-close" aria-label="Close distribution">✕</button>
-        </header>
-        <div id="high-chart"></div>
-        <p id="high-note" class="hint"></p>
-      </section>
+      <div id="left-panels" class="left-panels" hidden>
+        <section id="high-panel" class="high-panel" aria-label="Distribution of counts">
+          <header>
+            <h2 id="high-title"></h2>
+            <button type="button" id="high-close" aria-label="Close distribution and survey panels">✕</button>
+          </header>
+          <div id="high-chart"></div>
+          <p id="high-note" class="hint"></p>
+        </section>
+        <section id="cruise-panel" class="high-panel" aria-label="Survey months with top 5% samples">
+          <header><h2>Top 5% samples by survey month</h2></header>
+          <div id="cruise-chart"></div>
+          <p id="cruise-note" class="hint"></p>
+        </section>
+      </div>
       <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
         <header>
           <h2 id="station-title"></h2>
