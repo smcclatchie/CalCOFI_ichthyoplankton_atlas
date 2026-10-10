@@ -41,6 +41,7 @@ const state = {
   yearFrom: null,
   yearTo: null,
   station: null,        // selected station index
+  scaleMode: "fit",     // "fit" (this map's range) | "fixed" (same for all maps)
 };
 
 let meta, occ, taxa, map, popup;
@@ -97,9 +98,37 @@ function updateAvailable() {
   available = [...set].sort((a, b) => a - b);
 }
 
+// Colour scale: five classes between breaks b0..b5 (class i = [b_i, b_i+1)).
+// "fit" spreads them over the current map's own non-zero range, log-spaced and
+// rounded; "fixed" is the same decades for every map (null = open-ended), for
+// comparing surveys. The map, legend, colour bar and station chart all use it.
+const FIXED_BREAKS = [null, 1, 10, 100, 1000, null];
+let scaleBreaks = FIXED_BREAKS;
+
 function classOf(a) {
   if (!(a > 0)) return -1;
-  return CLASSES.findIndex((c) => a >= c.min && a < c.max);
+  let i = 0;
+  for (let k = 1; k <= 4; k++) if (a >= scaleBreaks[k]) i = k;
+  return i;
+}
+
+// Two significant figures, so breaks read as tidy numbers.
+const nice = (x) => { const e = Math.floor(Math.log10(x)) - 1; return Math.round(x / 10 ** e) * 10 ** e; };
+
+function computeScale(values) {
+  const pos = values.filter((a) => a > 0);
+  if (state.scaleMode === "fixed" || !pos.length) return FIXED_BREAKS;
+  const lo = Math.min(...pos), hi = Math.max(...pos);
+  if (hi / lo < 1.01) return [lo, hi, hi, hi, hi, hi];       // one value: darkest class
+  const l0 = Math.log10(lo), l1 = Math.log10(hi);
+  const b = [lo];
+  for (let k = 1; k <= 4; k++) {
+    let v = nice(10 ** (l0 + (k * (l1 - l0)) / 5));
+    if (v <= b[k - 1]) v = 10 ** (l0 + (k * (l1 - l0)) / 5);    // rounding collided: keep exact
+    b.push(v);
+  }
+  b.push(hi);
+  return b;
 }
 
 // -------------------------------------------------------------- labels --
@@ -147,6 +176,7 @@ function features() {
     }
     for (const r of rows.values()) r.a = r.sum / r.n;
   }
+  scaleBreaks = computeScale([...rows.values()].map((r) => r.a));
   const out = [];
   for (const [st, r] of rows) {
     const s = meta.stations[st];
@@ -282,11 +312,13 @@ function renderMapLabel() {
     const period = meta.periods[available[state.periodPos]];
     const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
     $("map-label").innerHTML = `<span class="when">${periodText(available[state.periodPos])}</span>` +
-      `Cruise${period.cruises.length > 1 ? "s" : ""} ${cruises}<br>${what}`;
+      `Cruise${period.cruises.length > 1 ? "s" : ""} ${cruises}<br>${what}` +
+      `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}`;
   } else {
     const season = $("season-select").selectedOptions[0].textContent;
     $("map-label").innerHTML = `<span class="when">${season}, ${state.yearFrom}–${state.yearTo}</span>` +
-      `Mean of ${compositePeriods().length} survey months<br>${what}`;
+      `Mean of ${compositePeriods().length} survey months<br>${what}` +
+      `<span class="bar-title">Mean ${unitsLabel()}</span>${colourBar(300)}`;
   }
 }
 
@@ -294,12 +326,37 @@ function renderLegend() {
   $("legend-title").textContent = state.mode === "composite"
     ? `Mean ${unitsLabel()}`
     : `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
-  const items = [`<li><span class="swatch" style="width:${ZERO.radius * 2 + 2}px;height:${ZERO.radius * 2 + 2}px;background:${ZERO.color}"></span>Sampled, none caught</li>`]
-    .concat(CLASSES.map((c) => {
-      const d = c.radius * 2 + 2;
-      return `<li><span class="swatch" style="width:${d}px;height:${d}px;background:${c.color};border-color:${OUTLINE}"></span>${c.label}</li>`;
-    }));
-  $("legend-items").innerHTML = items.join("");
+  $("legend-items").innerHTML = colourBar(280);
+  setToggle("scale-toggle", state.scaleMode);
+  $("scale-note").textContent = state.scaleMode === "fixed"
+    ? "Same classes for every map: colours compare across surveys."
+    : "Classes span this map's own range: compare colours within this map only.";
+}
+
+// Horizontal colour bar: grey "none caught" swatch, then the five classes with
+// their break values as ticks. Used in the side panel and the map label.
+function colourBar(width) {
+  const b = scaleBreaks, H = 34, zeroW = 30, gap = 10, x0 = zeroW + gap;
+  const bw = (width - x0 - 4) / CLASSES.length, top = 2, bh = 12;
+  // Two significant figures below 100 ("1", "10", "2.3", "0.047"); whole numbers above.
+  const label = (v) => (v === null ? "" : v >= 100 ? Math.round(v).toLocaleString() : String(Number(v.toPrecision(2))));
+  const parts = [
+    `<rect x="2" y="${top}" width="${zeroW - 4}" height="${bh}" rx="2" fill="${ZERO.color}"/>`,
+    `<text x="${zeroW / 2}" y="${top + bh + 13}" text-anchor="middle" font-size="11" fill="#5b5a55">0</text>`,
+  ];
+  CLASSES.forEach((c, i) => parts.push(
+    `<rect x="${x0 + i * bw}" y="${top}" width="${bw + 0.5}" height="${bh}" fill="${c.color}"/>`));
+  parts.push(`<rect x="${x0}" y="${top}" width="${bw * CLASSES.length}" height="${bh}" fill="none" stroke="${OUTLINE}" stroke-width="0.6"/>`);
+  const single = b[1] === b[5];
+  for (let k = 0; k <= 5; k++) {
+    if (single && k > 0 && k < 5) continue;
+    const text = label(b[k]);          // open ends of the fixed scale stay unlabelled
+    const x = x0 + k * bw;
+    const anchor = k === 0 ? "start" : k === 5 ? "end" : "middle";
+    if (b[k] !== null) parts.push(`<line x1="${x}" x2="${x}" y1="${top + bh}" y2="${top + bh + 3}" stroke="#85837c"/>`);
+    parts.push(`<text x="${x}" y="${top + bh + 13}" text-anchor="${anchor}" font-size="11" fill="#5b5a55">${text}</text>`);
+  }
+  return `<svg class="colour-bar" viewBox="0 0 ${width} ${H}" width="${width}" height="${H}" role="img" aria-label="Colour scale">${parts.join("")}</svg>`;
 }
 
 // ------------------------------------------------------- station chart --
@@ -575,6 +632,10 @@ function setupControls() {
   document.querySelectorAll("#view-toggle button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   setupDownload();
   setupHighCounts();
+  document.querySelectorAll("#scale-toggle button").forEach((b) => b.addEventListener("click", () => {
+    state.scaleMode = b.dataset.value;
+    render();
+  }));
   $("prev-btn").addEventListener("click", () => { stopPlay(); step(-1); });
   $("next-btn").addEventListener("click", () => { stopPlay(); step(1); });
   $("play-btn").addEventListener("click", togglePlay);
@@ -1090,6 +1151,7 @@ function writeHash() {
     params.set("years", `${state.yearFrom}-${state.yearTo}`);
   }
   if (state.station !== null) params.set("station", meta.stations[state.station].key);
+  if (state.scaleMode === "fixed") params.set("scale", "fixed");
   history.replaceState(null, "", `#${params}`);
 }
 
@@ -1101,6 +1163,7 @@ function readHash() {
   if (params.has("sampling")) state.sampling = idx(meta.samplings, params.get("sampling"));
   if (params.has("net")) state.net = idx(meta.nets.map((n) => n.code), params.get("net"));
   if (params.get("view") === "composite") state.mode = "composite";
+  if (params.get("scale") === "fixed") state.scaleMode = "fixed";
   if (params.has("season")) state.season = params.get("season");
   const years = (params.get("years") || "").split("-").map(Number);
   if (years.length === 2 && years.every(Number.isFinite)) [state.yearFrom, state.yearTo] = years;

@@ -115,7 +115,12 @@
 
       <section class="control legend" aria-label="Legend">
         <span class="label" id="legend-title">Abundance</span>
-        <ul id="legend-items"></ul>
+        <div class="segmented" id="scale-toggle" role="radiogroup" aria-label="Colour scale">
+          <button type="button" role="radio" data-value="fit" aria-checked="true">Fit to this map</button>
+          <button type="button" role="radio" data-value="fixed" aria-checked="false">Same for all</button>
+        </div>
+        <div id="legend-items" class="legend-bar"></div>
+        <p id="scale-note" class="hint"></p>
       </section>
 
       <footer class="about">
