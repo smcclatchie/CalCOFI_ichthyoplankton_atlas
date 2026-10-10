@@ -770,6 +770,7 @@ const CRUISE_BINS = [
   { min: 10, max: Infinity, color: "#a63603", label: "10+" },
 ];
 const SAMPLED_NO_TOP = "#e4e2db";
+const CRUISE_SELECTED_COLOR = "#0057e7";   // outline of the survey shown on the map
 const MONTH_LETTERS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
 
 function renderHighCruises(high) {
@@ -802,7 +803,10 @@ function renderHighCruises(high) {
     const fill = n ? CRUISE_BINS.find((b) => n >= b.min && n <= b.max).color : SAMPLED_NO_TOP;
     parts.push(`<rect x="${x + 0.3}" y="${y + 0.3}" width="${Math.max(0.8, cw - 0.6)}" height="${ch - 0.6}" fill="${fill}"/>`);
     if (p === current) {
-      selectedRect = `<rect x="${x - 0.5}" y="${y - 0.5}" width="${cw + 1}" height="${ch + 1}" fill="none" stroke="#1f1e1c" stroke-width="1.5"/>`;
+      // Bold blue (the strongest contrast with the orange cells) over a white
+      // halo, so the shown survey stands out on any cell colour.
+      const box = `x="${x - 1}" y="${y - 1}" width="${cw + 2}" height="${ch + 2}" fill="none"`;
+      selectedRect = `<rect ${box} stroke="#ffffff" stroke-width="4.5"/><rect ${box} stroke="${CRUISE_SELECTED_COLOR}" stroke-width="2.5"/>`;
     }
   }
   parts.push(selectedRect);
