@@ -615,7 +615,7 @@ function setupControls() {
 // 95th percentile of all samples would often be 0.
 
 const HIGH_PERCENTILE = 0.95;
-const HIGH_DOT_COLOR = "#7a7974";        // neutral grey for all top-5% samples
+const HIGH_DOT_COLOR = "#8f8e88";        // ring colour for top-5% samples not highlighted
 const HIGH_SELECTED_COLOR = "#d62728";   // the selected sample
 let highOpen = false;
 let highSelected = null;       // {p, st} of the dot last clicked
@@ -712,16 +712,21 @@ function renderHighCounts() {
     d.zy = zt + 5 + jitter * (zb - zt - 10);
   });
 
-  // Neutral grey for every sample; those from the survey shown on the map in
-  // the calendar's outline blue; the clicked sample red. Same size, drawn in
-  // that order so highlighted dots are never hidden under their neighbours.
+  // Every sample as an empty grey ring; those from the survey shown on the map
+  // filled in the calendar's outline blue; the clicked sample filled red. Same
+  // size, drawn in that order so highlighted dots are never hidden, and the
+  // hollow rings let the filled ones stand out.
   const surveyShown = state.mode === "cruise" ? available[state.periodPos] : null;
   const isSel = (d) => highSelected && highSelected.p === d.p && highSelected.st === d.st;
   const inSurvey = (d) => d.p === surveyShown && !isSel(d);
   const nInSurvey = dots.filter((d) => d.p === surveyShown).length;
   for (const d of [...dots.filter((x) => !isSel(x) && !inSurvey(x)), ...dots.filter(inSurvey), ...dots.filter(isSel)]) {
-    const fill = isSel(d) ? HIGH_SELECTED_COLOR : inSurvey(d) ? CRUISE_SELECTED_COLOR : HIGH_DOT_COLOR;
-    parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.5" fill="${fill}" stroke="#ffffff" stroke-width="0.6"/>`);
+    if (isSel(d) || inSurvey(d)) {
+      const fill = isSel(d) ? HIGH_SELECTED_COLOR : CRUISE_SELECTED_COLOR;
+      parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.5" fill="${fill}" stroke="#ffffff" stroke-width="0.8"/>`);
+    } else {
+      parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.1" fill="none" stroke="${HIGH_DOT_COLOR}" stroke-width="0.9"/>`);
+    }
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts with the top 5% as clickable points">${parts.join("")}</svg>`;
 
