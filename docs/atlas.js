@@ -18,13 +18,9 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 // perceptually uniform and colour-vision-deficiency safe. Colour and size both
 // rise with abundance; a thin dark outline keeps the pale low classes visible
 // against the light sea. Zero catches are small and neutral grey.
-const CLASSES = [
-  { min: 0, max: 1, color: "#fde725", radius: 3.5, label: "less than 1" },
-  { min: 1, max: 10, color: "#5ec962", radius: 4.5, label: "1 – 10" },
-  { min: 10, max: 100, color: "#21918c", radius: 5.5, label: "10 – 100" },
-  { min: 100, max: 1000, color: "#3b528b", radius: 6.5, label: "100 – 1,000" },
-  { min: 1000, max: Infinity, color: "#440154", radius: 7.5, label: "1,000 or more" },
-];
+// Ten classes; boundaries come from the colour-scale template (see SCALE_TEMPLATES).
+const CLASSES = ["#fde725", "#b5de2b", "#6ece58", "#35b779", "#1f9e89", "#26828e", "#31688e", "#3e4a89", "#482878", "#440154"]
+  .map((color, i) => ({ color, radius: 3 + i * 0.5 }));
 const ZERO = { color: "#a9a7a0", radius: 2.2 };
 const OUTLINE = "rgba(31, 30, 28, 0.55)";
 const DEFAULT_NET = "CB";      // CalCOFI bongo, the standard net since 1978
@@ -98,37 +94,61 @@ function updateAvailable() {
   available = [...set].sort((a, b) => a - b);
 }
 
-// Colour scale: five classes between breaks b0..b5 (class i = [b_i, b_i+1)).
-// "fit" spreads them over the current map's own non-zero range, log-spaced and
-// rounded; "fixed" is the same decades for every map (null = open-ended), for
-// comparing surveys. The map, legend, colour bar and station chart all use it.
-const FIXED_BREAKS = [null, 1, 10, 100, 1000, null];
-let scaleBreaks = FIXED_BREAKS;
+// Colour scale: always ten classes, bounded by integers (the first class runs
+// from just above 0 to 1, so standardised values below 1 have a colour; 0 itself
+// is grey). Templates step roughly x3 (10, 30, 100, 300, ...), each with steps
+// that roughly double or triple so intervals widen into the tail. The template
+// is the smallest whose top covers a high PERCENTILE, not the maximum, so a few
+// extreme tows don't squeeze everything else into the lowest colours:
+// "fit" uses the 95th percentile of the current map's non-zero values; "fixed"
+// the 99th percentile of the whole record for the selected species, net, stage
+// and sampling (colours then compare across surveys). Anything above the top
+// shares the darkest colour, and the last tick reads "<top>+". Map, legend,
+// colour bar and station chart all use it. Class i = [b_i, b_i+1).
+const SCALE_TEMPLATES = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  [0, 1, 2, 3, 4, 5, 7, 10, 15, 20, 30],
+  [0, 1, 2, 3, 5, 10, 15, 20, 30, 50, 100],
+  [0, 1, 2, 5, 10, 20, 30, 50, 100, 200, 300],
+  [0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000],
+  [0, 1, 2, 5, 10, 30, 100, 300, 1000, 2000, 3000],
+  [0, 1, 3, 10, 30, 100, 300, 1000, 2000, 5000, 10000],
+  [0, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000],
+  [0, 1, 10, 30, 100, 300, 1000, 3000, 10000, 30000, 100000],
+];
+const FIT_PERCENTILE = 0.95;      // "Fit to this map"
+const FIXED_PERCENTILE = 0.99;    // "Same for all"
+let scaleBreaks = SCALE_TEMPLATES[4];
+let scaleOverflow = false;        // some values exceed the template's top
 
 function classOf(a) {
   if (!(a > 0)) return -1;
   let i = 0;
-  for (let k = 1; k <= 4; k++) if (a >= scaleBreaks[k]) i = k;
+  for (let k = 1; k < scaleBreaks.length - 1; k++) if (a >= scaleBreaks[k]) i = k;
   return i;
 }
 
-// Two significant figures, so breaks read as tidy numbers.
-const nice = (x) => { const e = Math.floor(Math.log10(x)) - 1; return Math.round(x / 10 ** e) * 10 ** e; };
+const templateFor = (max) => SCALE_TEMPLATES.find((t) => max <= t[t.length - 1]) || SCALE_TEMPLATES[SCALE_TEMPLATES.length - 1];
+
+function recordValues() {
+  // Every non-zero value in the record for the current species/net/stage/sampling.
+  const t = taxonCache.get(state.taxon.id).raw;
+  const out = [];
+  for (let i = 0; i < t.a.length; i++) {
+    if (t.s[i] === state.sampling && t.n[i] === state.net && t.g[i] === state.stage) out.push(t.a[i]);
+  }
+  return out;
+}
 
 function computeScale(values) {
-  const pos = values.filter((a) => a > 0);
-  if (state.scaleMode === "fixed" || !pos.length) return FIXED_BREAKS;
-  const lo = Math.min(...pos), hi = Math.max(...pos);
-  if (hi / lo < 1.01) return [lo, hi, hi, hi, hi, hi];       // one value: darkest class
-  const l0 = Math.log10(lo), l1 = Math.log10(hi);
-  const b = [lo];
-  for (let k = 1; k <= 4; k++) {
-    let v = nice(10 ** (l0 + (k * (l1 - l0)) / 5));
-    if (v <= b[k - 1]) v = 10 ** (l0 + (k * (l1 - l0)) / 5);    // rounding collided: keep exact
-    b.push(v);
-  }
-  b.push(hi);
-  return b;
+  const fixed = state.scaleMode === "fixed";
+  const pos = (fixed ? recordValues() : values).filter((a) => a > 0).sort((a, b) => a - b);
+  if (!pos.length) { scaleOverflow = false; return SCALE_TEMPLATES[0]; }
+  const ref = quantile(pos, fixed ? FIXED_PERCENTILE : FIT_PERCENTILE);
+  const t = templateFor(ref);
+  // The overflow "+" describes THIS map's values, in either mode.
+  scaleOverflow = Math.max(0, ...values) > t[t.length - 1];
+  return t;
 }
 
 // -------------------------------------------------------------- labels --
@@ -328,33 +348,34 @@ function renderLegend() {
     : `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
   $("legend-items").innerHTML = colourBar(280);
   setToggle("scale-toggle", state.scaleMode);
+  const top = scaleBreaks[scaleBreaks.length - 1].toLocaleString();
+  const over = scaleOverflow ? ` Values above ${top} share the darkest colour.` : "";
   $("scale-note").textContent = state.scaleMode === "fixed"
-    ? "Same classes for every map: colours compare across surveys."
-    : "Classes span this map's own range: compare colours within this map only.";
+    ? `Scale 0–${top}, covering 99% of the record for this species, net, stage and sampling: colours compare across surveys.${over}`
+    : `Scale 0–${top}, covering 95% of this map's catches: compare colours within this map only.${over}`;
 }
 
-// Horizontal colour bar: grey "none caught" swatch, then the five classes with
-// their break values as ticks. Used in the side panel and the map label.
+// Horizontal colour bar: grey "0" swatch, then the ten classes with the
+// template's integer bounds as ticks (1k = 1,000). Used in the side panel and
+// the map label.
 function colourBar(width) {
-  const b = scaleBreaks, H = 34, zeroW = 30, gap = 10, x0 = zeroW + gap;
-  const bw = (width - x0 - 4) / CLASSES.length, top = 2, bh = 12;
-  // Two significant figures below 100 ("1", "10", "2.3", "0.047"); whole numbers above.
-  const label = (v) => (v === null ? "" : v >= 100 ? Math.round(v).toLocaleString() : String(Number(v.toPrecision(2))));
+  const b = scaleBreaks, H = 32, zeroW = 22, gap = 8, x0 = zeroW + gap;
+  const bw = (width - x0 - 18) / CLASSES.length, top = 2, bh = 12;   // right margin fits "300+"
+  const label = (v) => (v >= 1000 ? `${v / 1000}k` : String(v));
+  const last = b.length - 1;
   const parts = [
     `<rect x="2" y="${top}" width="${zeroW - 4}" height="${bh}" rx="2" fill="${ZERO.color}"/>`,
-    `<text x="${zeroW / 2}" y="${top + bh + 13}" text-anchor="middle" font-size="11" fill="#5b5a55">0</text>`,
+    `<text x="${zeroW / 2 + 1}" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">0</text>`,
   ];
   CLASSES.forEach((c, i) => parts.push(
     `<rect x="${x0 + i * bw}" y="${top}" width="${bw + 0.5}" height="${bh}" fill="${c.color}"/>`));
   parts.push(`<rect x="${x0}" y="${top}" width="${bw * CLASSES.length}" height="${bh}" fill="none" stroke="${OUTLINE}" stroke-width="0.6"/>`);
-  const single = b[1] === b[5];
-  for (let k = 0; k <= 5; k++) {
-    if (single && k > 0 && k < 5) continue;
-    const text = label(b[k]);          // open ends of the fixed scale stay unlabelled
+  // Ticks at every bound after 0 (the grey swatch already says 0).
+  for (let k = 1; k < b.length; k++) {
     const x = x0 + k * bw;
-    const anchor = k === 0 ? "start" : k === 5 ? "end" : "middle";
-    if (b[k] !== null) parts.push(`<line x1="${x}" x2="${x}" y1="${top + bh}" y2="${top + bh + 3}" stroke="#85837c"/>`);
-    parts.push(`<text x="${x}" y="${top + bh + 13}" text-anchor="${anchor}" font-size="11" fill="#5b5a55">${text}</text>`);
+    parts.push(`<line x1="${x}" x2="${x}" y1="${top + bh}" y2="${top + bh + 3}" stroke="#85837c"/>`);
+    const text = label(b[k]) + (k === last && scaleOverflow ? "+" : "");
+    parts.push(`<text x="${x}" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">${text}</text>`);
   }
   return `<svg class="colour-bar" viewBox="0 0 ${width} ${H}" width="${width}" height="${H}" role="img" aria-label="Colour scale">${parts.join("")}</svg>`;
 }
