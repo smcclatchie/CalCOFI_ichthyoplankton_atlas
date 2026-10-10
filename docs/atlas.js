@@ -712,11 +712,15 @@ function renderHighCounts() {
     d.zy = zt + 5 + jitter * (zb - zt - 10);
   });
 
-  // One neutral colour for every sample; the selected one red, same size,
-  // drawn last so it is never hidden under its neighbours.
+  // Neutral grey for every sample; those from the survey shown on the map in
+  // the calendar's outline blue; the clicked sample red. Same size, drawn in
+  // that order so highlighted dots are never hidden under their neighbours.
+  const surveyShown = state.mode === "cruise" ? available[state.periodPos] : null;
   const isSel = (d) => highSelected && highSelected.p === d.p && highSelected.st === d.st;
-  for (const d of [...dots.filter((x) => !isSel(x)), ...dots.filter(isSel)]) {
-    const fill = isSel(d) ? HIGH_SELECTED_COLOR : HIGH_DOT_COLOR;
+  const inSurvey = (d) => d.p === surveyShown && !isSel(d);
+  const nInSurvey = dots.filter((d) => d.p === surveyShown).length;
+  for (const d of [...dots.filter((x) => !isSel(x) && !inSurvey(x)), ...dots.filter(inSurvey), ...dots.filter(isSel)]) {
+    const fill = isSel(d) ? HIGH_SELECTED_COLOR : inSurvey(d) ? CRUISE_SELECTED_COLOR : HIGH_DOT_COLOR;
     parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.5" fill="${fill}" stroke="#ffffff" stroke-width="0.6"/>`);
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts with the top 5% as clickable points">${parts.join("")}</svg>`;
@@ -755,7 +759,10 @@ function renderHighCounts() {
   $("high-note").textContent =
     `${counts.length.toLocaleString()} non-zero counts; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
     `${high.length.toLocaleString()} samples at or above it are shown as dots in the strip: click one to show its station and survey. ` +
-    `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.`;
+    `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.` +
+    (surveyShown === null ? "" : nInSurvey
+      ? ` ${periodText(surveyShown)} (outlined in the calendar): ${nInSurvey} top-5% sample${nInSurvey > 1 ? "s" : ""}, shown in blue.`
+      : ` ${periodText(surveyShown)} (outlined in the calendar) has no top-5% samples.`);
   renderHighCruises(high);
 }
 
