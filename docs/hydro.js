@@ -54,13 +54,14 @@ const LABEL_SPACING_PX = 320;           // contour labels: one per this much lin
 const LABEL_MIN_SEPARATION_PX = 90;
 const LABEL_MIN_LINE_PX = 110;
 const NICE_STEPS = [0.01, 0.02, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5];
-const MAX_INTERVALS = 14;
+const MAX_INTERVALS = 20;
 
 const hstate = {
   source: "bottle",
   variable: "temperature",
   depth: 50,
-  scale: "floating",     // "floating" | "all" (fixed, whole record) | "season" (fixed, this season)
+  scale: "floating",     // "floating" | "all" (fixed, all seasons) | "season" (fixed, this season)
+  compare: null,         // [first, last] years whose maps the fixed scale spans
   smoothing: 75,         // km
   overlay: false,        // ichthyoplankton on top
   periodPos: 0,          // position within hAvailable
@@ -303,14 +304,72 @@ function paletteAt(stops, t) {
 }
 const rgbText = (c) => `rgb(${c.join(",")})`;
 
+// ------------------------------------------------------- compare years --
+//
+// "Fixed" scales span the maps of the years being compared: every survey
+// month ("By month") or every season mean ("By season") in those years --
+// all seasons ("Fixed: all") or only the season shown ("Fixed: season").
+// The mapped field is a weighted mean of station values, so it never leaves
+// their range: every compared map uses the whole colour range, unclipped.
+
+// The year a survey month counts toward: calendar year, or season year By season.
+const hStepYear = (x) => (state.mode === "season" ? x.year + (x.month === 12 ? 1 : 0) : x.year);
+
+function hCompareYears() {
+  const periods = hSrc().periods;
+  return [...new Set(hAvailable.map((p) => hStepYear(periods[p])))].sort((a, b) => a - b);
+}
+
+function hShownYear() {
+  if (state.mode === "season") return hSteps[hstate.seasonPos]?.year;
+  const p = hSrc().periods[hAvailable[hstate.periodPos]];
+  return p?.year;
+}
+
+function ensureCompareYears() {
+  // Default: the year shown and one either side; kept within the years with data.
+  const years = hCompareYears();
+  if (!years.length) return;
+  let [a, b] = hstate.compare || [hShownYear() - 1, hShownYear() + 1];
+  a = Math.max(years[0], Math.min(a, years[years.length - 1]));
+  b = Math.max(a, Math.min(b, years[years.length - 1]));
+  hstate.compare = [a, b];
+}
+
+function compareRange() {
+  const [y0, y1] = hstate.compare;
+  const d = hData(), col = hVar().column, periods = hSrc().periods;
+  const season = hstate.scale === "season" ? hShownSeason() : null;
+  const acc = new Map();       // station x map -> {sum, n}
+  for (let i = 0; i < d.p.length; i++) {
+    const v = d[col][i];
+    if (v === null) continue;
+    const x = periods[d.p[i]], yr = hStepYear(x), s = SEASON_OF_MONTH[x.month];
+    if (yr < y0 || yr > y1 || (season && s !== season)) continue;
+    const key = state.mode === "season" ? `${d.st[i]}|${yr}|${s}` : `${d.st[i]}|${d.p[i]}`;
+    const r = acc.get(key) || { sum: 0, n: 0 };
+    r.sum += v;
+    r.n += 1;
+    acc.set(key, r);
+  }
+  let lo = Infinity, hi = -Infinity, maps = new Set();
+  for (const [key, r] of acc) {
+    const v = r.sum / r.n;
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+    maps.add(key.slice(key.indexOf("|") + 1));
+  }
+  return Number.isFinite(lo) ? { lo, hi, maps: maps.size } : null;
+}
+
 function hydroScale(field) {
-  // Floating: fitted to this map. Fixed: the record's (or this season's)
-  // 1st-99th percentile range, so maps compare; values beyond it take the end colours.
+  // Floating: fitted to this map. Fixed: spanning the maps of the years
+  // compared (see above); a map outside those years may pass the ends.
   let lo = field.zMin, hi = field.zMax, fixed = null;
   if (hstate.scale !== "floating") {
-    const ranges = hSrc().scales[hstate.variable][String(hstate.depth)] || {};
-    fixed = hstate.scale === "season" ? ranges[hShownSeason()] : ranges.all;
-    if (fixed) [lo, hi] = fixed;
+    ensureCompareYears();
+    fixed = hstate.compare ? compareRange() : null;
+    if (fixed) ({ lo, hi } = fixed);
   }
   if (!(hi > lo)) hi = lo + 0.01;
   const { levels, step } = niceLevels(lo, hi);
@@ -320,7 +379,8 @@ function hydroScale(field) {
   const colorAt = style.smooth
     ? (v) => paletteAt(style.stops, (v - a) / (b - a))
     : (v) => paletteAt(style.stops, (Math.min(n - 1, Math.max(0, Math.floor(((v - a) / (b - a)) * n))) + 0.5) / n);
-  return { levels, step, colors, colorAt, smooth: style.smooth, fixed: Boolean(fixed), below: field.zMin < a, above: field.zMax > b };
+  return { levels, step, colors, colorAt, smooth: style.smooth, fixed: Boolean(fixed), maps: fixed?.maps ?? 0,
+    below: field.zMin < a, above: field.zMax > b };
 }
 
 // -------------------------------------------------------------- contours --
@@ -630,9 +690,14 @@ function hydroColourBar(width) {
     parts.push(`<path d="M${m.l} 2 L${m.l - tri} ${2 + h / 2} L${m.l} ${2 + h} Z" fill="${lo}" opacity="${below ? 1 : 0.35}"/>`);
     parts.push(`<path d="M${m.l + w} 2 L${m.l + w + tri} ${2 + h / 2} L${m.l + w} ${2 + h} Z" fill="${hi}" opacity="${above ? 1 : 0.35}"/>`);
   }
-  const every = Math.ceil(levels.length / 8);
+  // Label every k-th level, with k dividing the interval count when possible
+  // so the last level is labelled without crowding its neighbour.
+  const nInt = levels.length - 1, kMin = Math.max(1, Math.ceil(levels.length / 8));
+  let every = kMin;
+  while (every <= nInt && nInt % every) every++;
+  if (every > Math.max(kMin * 2, 2)) every = kMin;
   levels.forEach((v, i) => {
-    if (i % every && i !== levels.length - 1) return;
+    if (i % every) return;
     const x = m.l + i * bw;
     parts.push(`<line x1="${x}" x2="${x}" y1="${2 + h}" y2="${5 + h}" stroke="#85837c"/>`);
     parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${+v.toFixed(3)}</text>`);
@@ -644,15 +709,38 @@ function renderHydroLegend() {
   $("hydro-legend-title").textContent = `${hVar().label}${hUnits()}, ${hstate.depth} m`;
   $("hydro-legend-bar").innerHTML = hydroColourBar(280);
   setToggle("hydro-scale-toggle", hstate.scale);
+  renderCompareControls();
   if (!hLevels) { $("hydro-scale-note").textContent = "Too few stations to contour."; return; }
   const range = `${+hLevels.levels[0].toFixed(3)}–${+hLevels.levels[hLevels.levels.length - 1].toFixed(3)}`;
   const contours = `contours every ${+hLevels.step.toFixed(3)}`;
   const season = hShownSeason();
-  $("hydro-scale-note").textContent = hstate.scale === "floating"
-    ? `Floating: ${range}, fitted to this map (${contours}). Colours compare within this map only.`
-    : hstate.scale === "all"
-      ? `Fixed for comparison: ${range} (${contours}), the 1st–99th percentiles of the whole ${hSourceWord()} record at ${hstate.depth} m, all seasons. Values beyond take the end colours.`
-      : `Fixed for comparison within ${season}: ${range} (${contours}), the 1st–99th percentiles of every ${season} in the ${hSourceWord()} record at ${hstate.depth} m. Values beyond take the end colours.`;
+  if (hstate.scale === "floating") {
+    $("hydro-scale-note").textContent = `Floating: ${range}, fitted to this map (${contours}). Colours compare within this map only.`;
+    return;
+  }
+  const [a, b] = hstate.compare || [];
+  const years = a === b ? `${a}` : `${a}–${b}`;
+  const which = state.mode === "season"
+    ? (hstate.scale === "season" ? `${season} maps` : "seasonal maps")
+    : (hstate.scale === "season" ? `${season} survey months` : "survey months");
+  const shown = hShownYear();
+  const outside = shown < a || shown > b ? ` This map (${shown}) is outside the years compared, so it may pass the ends.` : "";
+  $("hydro-scale-note").textContent = hLevels.fixed
+    ? `Fixed for comparison: ${range} (${contours}), spanning every station value in the ${hLevels.maps} ${which} of ${years}, so those maps share colours and contour levels.${outside}`
+    : `No ${hSourceWord()} data for ${years}${hstate.scale === "season" ? ` in ${season}` : ""}; showing a floating scale.`;
+}
+
+function renderCompareControls() {
+  const box = $("hydro-compare");
+  box.hidden = hstate.scale === "floating";
+  if (box.hidden || !hstate.compare) return;
+  const years = hCompareYears();
+  const opts = years.map((y) => `<option value="${y}">${y}</option>`).join("");
+  for (const [id, v] of [["hydro-compare-from", hstate.compare[0]], ["hydro-compare-to", hstate.compare[1]]]) {
+    const sel = $(id);
+    if (sel.dataset.years !== years.join()) { sel.innerHTML = opts; sel.dataset.years = years.join(); }
+    sel.value = String(v);
+  }
 }
 
 // ---------------------------------------------------------- station chart --
@@ -790,6 +878,13 @@ function setupHydroControls() {
     hstate.scale = b.dataset.value;
     render();
   }));
+  const compare = () => {
+    const a = Number($("hydro-compare-from").value), b = Number($("hydro-compare-to").value);
+    hstate.compare = [Math.min(a, b), Math.max(a, b)];
+    render();
+  };
+  $("hydro-compare-from").addEventListener("change", compare);
+  $("hydro-compare-to").addEventListener("change", compare);
   fillSelect($("hydro-variable"), Object.values(hmeta.variables).map((v) => v.label), 0);
   [...$("hydro-variable").options].forEach((o, i) => { o.value = Object.keys(hmeta.variables)[i]; });
   $("hydro-variable").value = hstate.variable;
@@ -819,6 +914,7 @@ function writeHydroHash(params) {
   params.set("var", hstate.variable);
   params.set("depth", hstate.depth);
   if (hstate.scale !== "floating") params.set("hscale", hstate.scale);
+  if (hstate.scale !== "floating" && hstate.compare) params.set("cmp", hstate.compare.join("-"));
   if (hstate.smoothing !== 75) params.set("L", hstate.smoothing);
   if (hstate.overlay) params.set("overlay", "1");
   if (hstate.station !== null && hmeta) params.set("hst", hSrc().stations[hstate.station].key);
@@ -837,6 +933,8 @@ function readHydroHash(params) {
   if (params.get("var") in { temperature: 1, salinity: 1, sigma_theta: 1 }) hstate.variable = params.get("var");
   if (params.has("depth")) hstate.depth = Number(params.get("depth")) || 50;
   if (params.get("hscale") in { all: 1, season: 1 }) hstate.scale = params.get("hscale");
+  const cmp = (params.get("cmp") || "").split("-").map(Number);
+  if (cmp.length === 2 && cmp.every(Number.isFinite)) hstate.compare = [Math.min(...cmp), Math.max(...cmp)];
   if (SMOOTHING_KM.includes(Number(params.get("L")))) hstate.smoothing = Number(params.get("L"));
   hstate.overlay = params.get("overlay") === "1";
   hydroPendingStation = params.get("hst");

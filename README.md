@@ -11,7 +11,7 @@ A second view, **Hydrography**, maps temperature, salinity and density
 values are spread onto a grid as a Gaussian-weighted mean (e-folding scale
 75 km by default, about the station spacing) and shown only within the
 sampled area. Colour scales float with each map or are fixed for comparison
-(over the whole record, or within the season shown), and the
+across chosen years (all seasons, or only the season shown), and the
 ichthyoplankton for the same month or season can be overlaid.
 
 The site is static (`docs/`) and is served by GitHub Pages. It uses

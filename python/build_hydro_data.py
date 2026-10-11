@@ -9,7 +9,7 @@ which hold every selection and quality rule; this script only reshapes them:
 
   docs/data/hydro/meta.json               per source (bottle, ctd): survey
                                           months with their cruises, stations,
-                                          and the fixed colour ranges
+                                          depths
   docs/data/hydro/<source>/<depth>.json   one file per source and standard
                                           depth, loaded on demand: station x
                                           survey month values of temperature,
@@ -18,12 +18,8 @@ which hold every selection and quality rule; this script only reshapes them:
 As in the ichthyoplankton view, the atlas steps by survey month (year-month
 of the cast). Where a station was sampled more than once in a month, its
 value is the mean of those casts (n = number of casts). Bottle and CTD data
-are separate sources and are never mixed.
-
-Fixed colour ranges ("Fixed for comparison"), per source, variable and
-depth: the 1st-99th percentiles of all station-month values, over the whole
-record ("all") and within each season, so a few extreme values don't
-stretch the scale.
+are separate sources and are never mixed. (The atlas computes its fixed,
+"compare years" colour ranges itself from these values.)
 
 Usage:  python build_hydro_data.py [--src-dir DIR] [--out-dir docs/data/hydro]
 --src-dir defaults to that repository's data folder when it is cloned
@@ -36,7 +32,6 @@ import os
 import shutil
 
 import duckdb
-import numpy as np
 import pandas as pd
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -51,8 +46,6 @@ VARIABLES = {
     "salinity": {"label": "Salinity", "units": "", "column": "s", "decimals": 3},
     "sigma_theta": {"label": "Density (σθ)", "units": "kg m⁻³", "column": "d", "decimals": 3},
 }
-SEASON_NAMES = ["winter", "spring", "summer", "autumn"]
-PERCENTILES = (1, 99)
 
 
 def dump(obj, path):
@@ -86,10 +79,9 @@ def build_source(key, path, label, out_dir):
     # station x survey month x depth means
     sm = (df.groupby(["period", "site_key", "depth_m"])
             .agg(temperature=("temperature", "mean"), salinity=("salinity", "mean"),
-                 sigma_theta=("sigma_theta", "mean"), n=("cast", "nunique"), season=("season", "first"))
+                 sigma_theta=("sigma_theta", "mean"), n=("cast", "nunique"))
             .reset_index())
     os.makedirs(os.path.join(out_dir, key), exist_ok=True)
-    scales = {v: {} for v in VARIABLES}
     depths = sorted(int(d) for d in sm.depth_m.unique())
     sizes = 0
     for depth in depths:
@@ -98,15 +90,6 @@ def build_source(key, path, label, out_dir):
         for v, spec in VARIABLES.items():
             vals = g[v].round(spec["decimals"])
             rec[spec["column"]] = [None if pd.isna(x) else float(x) for x in vals]
-            ok = g[v].notna()
-            entry = {}
-            if ok.sum() >= 10:
-                entry["all"] = [round(float(x), 3) for x in np.percentile(g.loc[ok, v], PERCENTILES)]
-            for season in SEASON_NAMES:
-                sel = ok & (g.season == season)
-                if sel.sum() >= 10:
-                    entry[season] = [round(float(x), 3) for x in np.percentile(g.loc[sel, v], PERCENTILES)]
-            scales[v][str(depth)] = entry
         out = os.path.join(out_dir, key, f"{depth}.json")
         dump(rec, out)
         sizes += os.path.getsize(out)
@@ -120,7 +103,6 @@ def build_source(key, path, label, out_dir):
         "stations": [{"key": r.site_key, "line": float(r.line), "station": float(r.station),
                       "lon": round(float(r.lon), 4), "lat": round(float(r.lat), 4)} for r in stations.itertuples()],
         "depths": depths,
-        "scales": scales,
     }
 
 
