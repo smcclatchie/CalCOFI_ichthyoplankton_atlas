@@ -20,6 +20,41 @@
   <main class="layout">
     <aside class="controls" aria-label="Atlas controls">
       <section class="control">
+        <span class="label">Map</span>
+        <div class="segmented" id="layer-toggle" role="radiogroup" aria-label="Map">
+          <button type="button" role="radio" data-value="ichthyo" aria-checked="true">Ichthyoplankton</button>
+          <button type="button" role="radio" data-value="hydro" aria-checked="false">Hydrography</button>
+        </div>
+      </section>
+
+      <section class="control hydro-only" hidden>
+        <span class="label">Source</span>
+        <div class="segmented" id="hydro-source" role="radiogroup" aria-label="Hydrography source">
+          <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle 1949–2021</button>
+          <button type="button" role="radio" data-value="ctd" aria-checked="false">CTD 1993–2026</button>
+        </div>
+        <p id="hydro-source-note" class="hint"></p>
+      </section>
+
+      <section class="control two-up hydro-only" hidden>
+        <div>
+          <label for="hydro-variable">Variable</label>
+          <select id="hydro-variable"></select>
+        </div>
+        <div>
+          <label for="hydro-depth">Depth</label>
+          <select id="hydro-depth"></select>
+        </div>
+      </section>
+
+      <section class="control hydro-only" hidden>
+        <label for="hydro-smoothing">Smoothing</label>
+        <select id="hydro-smoothing"></select>
+        <p class="hint">Station values are mapped as a Gaussian-weighted mean over this distance (e-folding scale), so contours carry no detail finer than the stations support. The field is shown only within the sampled area.</p>
+        <label class="checkbox"><input type="checkbox" id="hydro-overlay"> Overlay ichthyoplankton</label>
+      </section>
+
+      <section class="control fish-controls">
         <label for="species-input">Species</label>
         <div class="species-picker">
           <input id="species-input" type="search" autocomplete="off" spellcheck="false"
@@ -30,7 +65,7 @@
         <p id="species-detail" class="hint"></p>
       </section>
 
-      <section class="control two-up">
+      <section class="control two-up fish-controls">
         <div>
           <label for="stage-select">Life stage</label>
           <select id="stage-select"></select>
@@ -41,7 +76,7 @@
         </div>
       </section>
 
-      <section class="control">
+      <section class="control fish-controls">
         <label for="net-select">Net</label>
         <select id="net-select"></select>
         <p class="hint">Abundance from different nets is not comparable, so one net is shown at a time.</p>
@@ -78,13 +113,13 @@
         <p id="period-label" class="period-label"></p>
       </section>
 
-      <section class="control">
+      <section class="control ichthyo-only">
         <span class="label">High counts</span>
         <button type="button" id="high-toggle" class="secondary-button" aria-pressed="false">Show distribution and top 5%</button>
         <p class="hint">Find the stations and surveys with the highest counts (95th percentile and above) for the selected species, net, life stage and sampling.</p>
       </section>
 
-      <section class="control download" aria-label="Download data">
+      <section class="control download ichthyo-only" aria-label="Download data">
         <span class="label">Download CSV</span>
         <div class="segmented" id="dl-extent" role="radiogroup" aria-label="Download extent">
           <button type="button" role="radio" data-value="station" aria-checked="true">One station</button>
@@ -103,11 +138,22 @@
         <p id="dl-note" class="hint"></p>
       </section>
 
-      <section class="control legend" aria-label="Legend">
+      <section class="control legend hydro-only" aria-label="Hydrography legend" hidden>
+        <span class="label" id="hydro-legend-title">Temperature</span>
+        <div class="segmented three" id="hydro-scale-toggle" role="radiogroup" aria-label="Hydrography colour scale">
+          <button type="button" role="radio" data-value="floating" aria-checked="true">Floating</button>
+          <button type="button" role="radio" data-value="all" aria-checked="false">Fixed: all</button>
+          <button type="button" role="radio" data-value="season" aria-checked="false">Fixed: season</button>
+        </div>
+        <div id="hydro-legend-bar" class="legend-bar"></div>
+        <p id="hydro-scale-note" class="hint"></p>
+      </section>
+
+      <section class="control legend fish-controls" aria-label="Legend">
         <span class="label" id="legend-title">Abundance</span>
         <div class="segmented" id="scale-toggle" role="radiogroup" aria-label="Colour scale">
-          <button type="button" role="radio" data-value="fit" aria-checked="true">Fit to this map</button>
-          <button type="button" role="radio" data-value="fixed" aria-checked="false">Same for all</button>
+          <button type="button" role="radio" data-value="fit" aria-checked="true">Floating</button>
+          <button type="button" role="radio" data-value="fixed" aria-checked="false">Fixed for comparison</button>
         </div>
         <div id="legend-items" class="legend-bar"></div>
         <p id="scale-note" class="hint"></p>
@@ -151,6 +197,8 @@
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script src="hydro.js"></script>
   <script src="atlas.js"></script>
 </body>
 </html>

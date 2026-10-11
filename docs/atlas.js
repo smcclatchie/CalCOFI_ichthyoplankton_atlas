@@ -27,6 +27,7 @@ const DEFAULT_NET = "CB";      // CalCOFI bongo, the standard net since 1978
 const DEFAULT_STATION = "090.0 060.0";   // Line 90, station 60: time series open on page load
 
 const state = {
+  layer: "ichthyo",     // "ichthyo" | "hydro" (hydrography; see hydro.js)
   taxon: null,          // entry from taxa.json
   stage: 1,             // index into meta.stages (larva)
   sampling: 0,          // index into meta.samplings (standard)
@@ -221,27 +222,52 @@ function seasonText(step = seasonSteps[state.seasonPos]) {
 
 // The stepper and slider walk survey months ("By month") or years for the
 // selected season, or every season in turn ("By season").
-const stepList = () => (state.mode === "month" ? available : seasonSteps);
-const stepPos = () => (state.mode === "month" ? state.periodPos : state.seasonPos);
+// In the hydrography view they walk its own survey months and seasons (hydro.js).
+const stepList = () => (state.layer === "hydro"
+  ? (state.mode === "month" ? hAvailable : hSteps)
+  : (state.mode === "month" ? available : seasonSteps));
+const stepPos = () => (state.layer === "hydro"
+  ? (state.mode === "month" ? hstate.periodPos : hstate.seasonPos)
+  : (state.mode === "month" ? state.periodPos : state.seasonPos));
 function setStepPos(pos) {
-  if (state.mode === "month") state.periodPos = pos; else state.seasonPos = pos;
+  const st = state.layer === "hydro" ? hstate : state;
+  if (state.mode === "month") st.periodPos = pos; else st.seasonPos = pos;
+}
+
+// Decimal year of the ichthyoplankton map shown, to carry the time across views.
+function ichthyoTime() {
+  if (state.mode === "month") {
+    const p = meta.periods[available[state.periodPos]];
+    return p ? p.year + (p.month - 0.5) / 12 : null;
+  }
+  const st = seasonSteps[state.seasonPos];
+  return st ? seasonStart(st.season, st.year) + 1.5 / 12 : null;
+}
+
+function setIchthyoTime(t) {
+  if (t === null) return;
+  const near = (list, time) => list.reduce((best, x, i) => (Math.abs(time(x) - t) < Math.abs(time(list[best]) - t) ? i : best), 0);
+  if (available.length) state.periodPos = near(available, (p) => meta.periods[p].year + (meta.periods[p].month - 0.5) / 12);
+  if (seasonSteps.length) state.seasonPos = near(seasonSteps, (x) => seasonStart(x.season, x.year) + 1.5 / 12);
 }
 // Survey months on the map now: one ("By month") or the season's ("By season").
 const shownPeriods = () => (state.mode === "month" ? (available.length ? [available[state.periodPos]] : []) : seasonPeriods());
 
 // ----------------------------------------------------------- rendering --
 
-function features() {
+// Station features for survey months `periods`: one month ("month"), or the
+// mean over a season's months ("season"). The hydrography overlay passes its own.
+function features(periods = shownPeriods(), mode = state.mode) {
   const values = taxonCache.get(state.taxon.id);
   const rows = new Map();   // station -> {a, tows, n, hits}
-  if (state.mode === "month") {
-    const p = available[state.periodPos];
-    for (const i of occupationRows(p)) {
+  if (mode === "month") {
+    const p = periods[0];
+    for (const i of p === undefined ? [] : occupationRows(p)) {
       const a = values.get(catchKey(p, state.sampling, state.net, state.stage, occ.st[i])) || 0;
       rows.set(occ.st[i], { a, tows: occ.t[i] });
     }
   } else {
-    for (const p of seasonPeriods()) {
+    for (const p of periods) {
       for (const i of occupationRows(p)) {
         const a = values.get(catchKey(p, state.sampling, state.net, state.stage, occ.st[i])) || 0;
         const r = rows.get(occ.st[i]) || { sum: 0, n: 0, hits: 0 };
@@ -268,7 +294,10 @@ function features() {
 }
 
 function render() {
+  if (state.layer === "hydro") { renderHydro(); return; }
   if (!state.taxon || !taxonCache.has(state.taxon.id) || !mapReady) return;
+  setHydroVisible(false);
+  for (const id of ["zero", "catch", "selected"]) map.setLayoutProperty(id, "visibility", "visible");
   const fc = features();
   map.getSource("stations").setData(fc);
   renderLineLabels(fc);
@@ -309,15 +338,15 @@ let lineAxes = null;           // line -> {ux, uy, angle}: screen-space directio
 // so directions computed here match the map's screen angles at every zoom.
 const mercatorY = (lat) => (Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) * 180) / Math.PI;
 
-function computeLineAxes() {
+function computeLineAxes(stationList) {
   // Best-fit (principal-axis) direction of every station on each line, over the
   // whole record, so a survey that sampled part of a line still gets its angle.
   const byLine = new Map();
-  for (const s of meta.stations) {
+  for (const s of stationList) {
     if (!byLine.has(s.line)) byLine.set(s.line, []);
     byLine.get(s.line).push([s.lon, mercatorY(s.lat)]);
   }
-  lineAxes = new Map();
+  const axes = new Map();
   for (const [line, pts] of byLine) {
     if (pts.length < 2) continue;
     const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
@@ -327,19 +356,26 @@ function computeLineAxes() {
     const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);       // principal axis, map coordinates (y north)
     let ux = Math.cos(theta), uy = -Math.sin(theta);           // screen coordinates (y down)
     if (ux < 0) { ux = -ux; uy = -uy; }                        // point west -> east
-    lineAxes.set(line, { ux, uy, angle: (Math.atan2(uy, ux) * 180) / Math.PI });
+    axes.set(line, { ux, uy, angle: (Math.atan2(uy, ux) * 180) / Math.PI });
   }
+  return axes;
 }
 
 function renderLineLabels(fc) {
   for (const m of lineMarkers) m.remove();
   lineMarkers = [];
   if (meta.samplings[state.sampling] !== "standard") return;
-  if (!lineAxes) computeLineAxes();
+  if (!lineAxes) lineAxes = computeLineAxes(meta.stations);
+  placeLineLabels(fc.features.map((f) => meta.stations[f.properties.st]), lineAxes);
+}
+
+// Labels for stations [{line, lon, lat}] with line axes `axes` (the
+// hydrography view passes its own stations).
+function placeLineLabels(stationList, axes) {
+  const lineAxes = axes;
   const end = new Map();    // line -> offshore-most station along the line's axis
   const count = new Map();  // line -> stations in view
-  for (const f of fc.features) {
-    const s = meta.stations[f.properties.st];
+  for (const s of stationList) {
     count.set(s.line, (count.get(s.line) || 0) + 1);
     const axis = lineAxes.get(s.line);
     const along = axis ? s.lon * axis.ux - mercatorY(s.lat) * axis.uy : s.lon;   // larger = further east
@@ -402,8 +438,8 @@ function renderLegend() {
   const top = scaleBreaks[scaleBreaks.length - 1].toLocaleString();
   const over = scaleOverflow ? ` Values above ${top} share the darkest colour.` : "";
   $("scale-note").textContent = state.scaleMode === "fixed"
-    ? `Scale 0–${top}, covering 99% of the record for this species, net, stage and sampling: colours compare across surveys.${over}`
-    : `Scale 0–${top}, covering 95% of this map's catches: compare colours within this map only.${over}`;
+    ? `Fixed for comparison: 0–${top}, covering 99% of the record for this species, net, stage and sampling, so colours compare across maps.${over}`
+    : `Floating: 0–${top}, covering 95% of this map's catches; colours compare within this map only.${over}`;
 }
 
 // Horizontal colour bar: grey "0" swatch, then the ten classes with the
@@ -574,7 +610,10 @@ function renderStationChart() {
 }
 
 function closeStation() {
-  state.station = null;
+  if (state.layer === "hydro") {
+    hstate.station = null;
+    map.getSource("hydro-selected").setData({ type: "FeatureCollection", features: [] });
+  } else state.station = null;
   $("station-panel").hidden = true;
   document.querySelector(".map-area").classList.remove("station-open");
   map.getSource("selected").setData({ type: "FeatureCollection", features: [] });
@@ -693,11 +732,46 @@ function onFilterChange(keepPeriod = true) {
 
 function setMode(mode) {
   stopPlay();
+  const t = state.layer === "hydro" && hmeta && hData() ? hTime() : null;
   state.mode = mode;
+  if (t !== null) updateHydroSteps(t);
   document.querySelectorAll("#view-toggle button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
   $("season-controls").hidden = mode !== "season";
   updateStepTitle();
   render();
+}
+
+// Ichthyoplankton or hydrography. The time shown carries across; the
+// species controls stay for the hydrography's optional ichthyoplankton overlay.
+function setLayer(layer) {
+  if (layer === state.layer) return;
+  stopPlay();
+  if (layer === "hydro") {
+    hydroPendingTime = ichthyoTime();
+    if (hmeta && hData()) updateHydroSteps(hydroPendingTime);
+    if (state.station !== null) closeStation();
+    for (const m of lineMarkers) m.remove();
+    lineMarkers = [];
+  } else {
+    setIchthyoTime(hmeta && hData() ? hTime() : null);
+    if (hstate.station !== null) closeStation();
+  }
+  state.layer = layer;
+  updateLayerControls();
+  render();
+}
+
+function updateLayerControls() {
+  const hydro = state.layer === "hydro";
+  setToggle("layer-toggle", state.layer);
+  document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
+  document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
+  // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
+  document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
+  if (hydro) $("left-panels").hidden = true; else renderHighCounts();
+  document.querySelector(".subtitle").textContent = hydro
+    ? "Temperature, salinity and density from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
 }
 
 function updateStepTitle() {
@@ -741,6 +815,8 @@ function setupControls() {
   $("sampling-select").addEventListener("change", (e) => { state.sampling = Number(e.target.value); onFilterChange(); });
   $("net-select").addEventListener("change", (e) => { state.net = Number(e.target.value); onFilterChange(); });
   document.querySelectorAll("#view-toggle button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  document.querySelectorAll("#layer-toggle button").forEach((b) => b.addEventListener("click", () => setLayer(b.dataset.value)));
+  setupHydroControls();
   setupDownload();
   setupHighCounts();
   document.querySelectorAll("#scale-toggle button").forEach((b) => b.addEventListener("click", () => {
@@ -753,8 +829,10 @@ function setupControls() {
   $("period-range").addEventListener("input", (e) => { stopPlay(); setStepPos(Number(e.target.value)); render(); });
   $("season-select").addEventListener("change", (e) => {
     stopPlay();
+    const t = state.layer === "hydro" && hmeta && hData() ? hTime() : null;
     state.season = e.target.value;
     updateSeasonSteps();
+    if (t !== null) updateHydroSteps(t);
     updateStepTitle();
     render();
   });
@@ -769,7 +847,11 @@ function setupControls() {
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (state.station !== null) renderStationChart(); renderHighCounts(); }, 150);
+    resizeTimer = setTimeout(() => {
+      if (state.layer === "hydro") { if (hstate.station !== null) renderHydroChart(); return; }
+      if (state.station !== null) renderStationChart();
+      renderHighCounts();
+    }, 150);
   });
 }
 
@@ -1328,14 +1410,17 @@ function writeHash() {
     net: meta.nets[state.net].code,
     view: state.mode,
   });
-  if (state.mode === "month" && available.length) params.set("survey", meta.periods[available[state.periodPos]].key);
-  if (state.mode === "season" && seasonSteps.length) {
+  if (state.layer === "hydro") {
+    params.set("layer", "hydro");
+    writeHydroHash(params);
+  } else if (state.mode === "month" && available.length) params.set("survey", meta.periods[available[state.periodPos]].key);
+  if (state.layer !== "hydro" && state.mode === "season" && seasonSteps.length) {
     const { season, year } = seasonSteps[state.seasonPos];
     params.set("season", state.season);
     if (state.season === "sequence") params.set("shown", season);
     params.set("year", year);
   }
-  if (state.station !== null) params.set("station", meta.stations[state.station].key);
+  if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   history.replaceState(null, "", `#${params}`);
 }
@@ -1356,6 +1441,8 @@ function readHash() {
     const shown = state.season === "sequence" ? params.get("shown") : state.season;
     seasonSteps = [{ season: SEASON_LABEL[shown] ? shown : "winter", year }];
   }
+  if (params.get("layer") === "hydro") state.layer = "hydro";
+  readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
   return { taxon, survey, station };
@@ -1435,6 +1522,7 @@ function createMap() {
     });
     map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
     map.on("click", layer, (e) => {
+      if (state.layer === "hydro") return;   // the overlay: station charts are the hydrography's
       state.station = e.features[0].properties.st;
       dl.line = null;          // the line list follows the newly chosen station
       renderStationChart();
@@ -1442,21 +1530,23 @@ function createMap() {
       writeHash();
     });
   }
-  return new Promise((resolve) => map.on("load", () => { mapReady = true; resolve(); }));
+  return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; resolve(); }));
 }
 
 // ---------------------------------------------------------------- init --
 
 async function init() {
   $("status").textContent = "Loading…";
-  [meta, occ, taxa] = await Promise.all([getJSON("meta.json"), getJSON("occupations.json"), getJSON("taxa.json")]);
+  [meta, occ, taxa] = await Promise.all([getJSON("meta.json"), getJSON("occupations.json"), getJSON("taxa.json"), loadHydroMeta()]);
   $("data-generated").textContent = `Data built ${meta.generated}.`;
   indexOccupations();
   const fromHash = readHash();
   setupControls();
   setMode(state.mode);
+  updateLayerControls();
   $("season-select").value = state.season;
   await createMap();
+  resolveHydroPendingStation();
 
   const start = fromHash.taxon || taxa.find((t) => t.scientific === "Engraulis mordax") || taxa[0];
   if (!fromHash.taxon) {
@@ -1469,7 +1559,7 @@ async function init() {
   else state.periodPos = Math.max(0, available.length - 1);
   // A shared link's station wins; otherwise open the time series at the default station.
   if (fromHash.station >= 0) state.station = fromHash.station;
-  else if (!location.hash) {
+  else if (!location.hash && state.layer === "ichthyo") {
     const station = meta.stations.findIndex((s) => s.key === DEFAULT_STATION);
     if (station >= 0) state.station = station;
   }

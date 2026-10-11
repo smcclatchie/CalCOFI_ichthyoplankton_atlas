@@ -302,6 +302,10 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
 /* Colour bar (side panel and map label). */
 .legend .segmented { margin-bottom: 8px; }
+.control[hidden] { display: none; }
+.contour-label { font: 600 10px/1 var(--font); white-space: nowrap; pointer-events: none; }
+.segmented.three button { font-size: 12px; padding-left: 4px; padding-right: 4px; }
+.checkbox { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-weight: 500; cursor: pointer; }
 .legend-bar { margin-top: 2px; }
 .colour-bar { display: block; max-width: 100%; height: auto; }
 .map-label .bar-title { display: block; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }

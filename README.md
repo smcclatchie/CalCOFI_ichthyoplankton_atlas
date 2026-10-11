@@ -5,6 +5,15 @@ An interactive web atlas of fish eggs and larvae from CalCOFI plankton tows,
 type and sampling type, then step or play through the maps by month or by season (one season of
 one year at a time), and click a station for its history.
 
+A second view, **Hydrography**, maps temperature, salinity and density
+(sigma-theta) at the CalCOFI standard depths (0–500 m) from the bottle
+(1949–2021) or CTD (1993–2026) data, never mixed, as smooth contours: station
+values are spread onto a grid as a Gaussian-weighted mean (e-folding scale
+75 km by default, about the station spacing) and shown only within the
+sampled area. Colour scales float with each map or are fixed for comparison
+(over the whole record, or within the season shown), and the
+ichthyoplankton for the same month or season can be overlaid.
+
 The site is static (`docs/`) and is served by GitHub Pages. It uses
 [MapLibre GL JS](https://maplibre.org/) and a Natural Earth coastline; no map
 tile service or server is needed.
@@ -17,8 +26,11 @@ which converts the CalCOFI.io `swfsc_ichthyo.nc` download into station-level
 GeoParquet: CalCOFI cruises and stations only, eggs and larvae and net types
 kept separate, abundance standardised per 10 m² (oblique and vertical nets) or
 per 100 m³ (Manta), and standard CalCOFI sampling separated from
-high-resolution / special surveys. All of those rules live there; this
-repository only reshapes that output for the browser.
+high-resolution / special surveys. The hydrography comes from the same
+repository's standard-depth tables (`build_bottle_standard_depths.py`,
+`build_ctd_standard_depths.py`: record types, quality flags, range checks,
+EOS-80 density). All of those rules live there; this repository only
+reshapes that output for the browser.
 
 ## Rebuilding the data
 
@@ -30,10 +42,13 @@ conda env create -f environment.yml
 conda activate calcofi_atlas
 python python/build_atlas_data.py            # reads ../CalCOFI_digital_atlas by default
 # or: python python/build_atlas_data.py --src-dir /path/to/geoparquet/folder
+python python/build_hydro_data.py            # hydrography, also from ../CalCOFI_digital_atlas
 ```
 
 This writes `docs/data/` (survey months, stations, station occupations, a
-taxon list, one file per taxon, and the coastline).
+taxon list, one file per taxon, and the coastline) and `docs/data/hydro/`
+(per source: survey months, stations, fixed colour ranges, and one file per
+standard depth).
 
 ## Viewing locally
 
