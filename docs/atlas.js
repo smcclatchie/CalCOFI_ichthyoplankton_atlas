@@ -613,7 +613,7 @@ function renderStationChart() {
 
 function closeStation() {
   if (state.layer === "hydro") {
-    hstate.station = null;
+    hstate.stationKey = null;
     map.getSource("hydro-selected").setData({ type: "FeatureCollection", features: [] });
   } else state.station = null;
   $("station-panel").hidden = true;
@@ -748,15 +748,24 @@ function setMode(mode) {
 function setLayer(layer) {
   if (layer === state.layer) return;
   stopPlay();
+  // The selected station carries across by its "line station" key.
   if (layer === "hydro") {
     hydroPendingTime = ichthyoTime();
     if (hmeta && hData()) updateHydroSteps(hydroPendingTime);
-    if (state.station !== null) closeStation();
+    hstate.stationKey = state.station !== null ? meta.stations[state.station].key : null;
+    state.station = null;
+    map.getSource("selected").setData({ type: "FeatureCollection", features: [] });
     for (const m of lineMarkers) m.remove();
     lineMarkers = [];
   } else {
     setIchthyoTime(hmeta && hData() ? hTime() : null);
-    if (hstate.station !== null) closeStation();
+    const i = hstate.stationKey !== null ? meta.stations.findIndex((s) => s.key === hstate.stationKey) : -1;
+    state.station = i >= 0 ? i : null;
+    hstate.stationKey = null;
+    if (state.station === null) {
+      $("station-panel").hidden = true;
+      document.querySelector(".map-area").classList.remove("station-open");
+    }
   }
   state.layer = layer;
   updateLayerControls();
@@ -770,7 +779,7 @@ function updateLayerControls() {
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
-  if (hydro) $("left-panels").hidden = true; else renderHighCounts();
+  renderHighCounts();   // the distribution panels stay open in both views
   document.querySelector(".subtitle").textContent = hydro
     ? "Temperature, salinity and density from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
@@ -850,7 +859,7 @@ function setupControls() {
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      if (state.layer === "hydro") { if (hstate.station !== null) renderHydroChart(); return; }
+      if (state.layer === "hydro") { if (hstate.stationKey !== null) renderHydroChart(); renderHighCounts(); return; }
       if (state.station !== null) renderStationChart();
       renderHighCounts();
     }, 150);
@@ -918,9 +927,24 @@ function highCountData() {
 }
 
 // What the map shows now, as distribution keys.
-const shownKeys = () => new Set(state.mode === "month"
-  ? shownPeriods()
-  : (seasonSteps.length ? [stepKey(seasonSteps[state.seasonPos])] : []));
+// In the hydrography view: the ichthyoplankton survey months (or season) of the
+// hydrography map shown.
+const shownKeys = () => {
+  if (state.layer === "hydro") {
+    if (state.mode === "month") return new Set(ichthyoPeriodsForHydro());
+    return new Set(hSteps.length ? [stepKey(hSteps[hstate.seasonPos])] : []);
+  }
+  return new Set(state.mode === "month"
+    ? shownPeriods()
+    : (seasonSteps.length ? [stepKey(seasonSteps[state.seasonPos])] : []));
+};
+const shownTimeText = () => {
+  if (state.layer === "hydro") {
+    if (state.mode === "month") { const p = hShownPeriods()[0]; return p === undefined ? "" : hPeriodText(p); }
+    return hSteps.length ? seasonText(hSteps[hstate.seasonPos]) : "";
+  }
+  return state.mode === "month" ? (available.length ? periodText(available[state.periodPos]) : "") : (seasonSteps.length ? seasonText() : "");
+};
 // Words for the distribution's units.
 const highUnit = (n = 2) => (state.mode === "month" ? (n === 1 ? "sample" : "samples") : (n === 1 ? "station-season" : "station-seasons"));
 
@@ -1003,7 +1027,7 @@ function renderHighCounts() {
   // size, drawn in that order so highlighted dots are never hidden, and the
   // hollow rings let the filled ones stand out.
   const shown = shownKeys();
-  const shownText = !shown.size ? "" : state.mode === "month" ? periodText([...shown][0]) : seasonText();
+  const shownText = shownTimeText();
   const isSel = (d) => highSelected && highSelected.key === d.key && highSelected.st === d.st;
   const inSurvey = (d) => shown.has(d.key) && !isSel(d);
   const nInSurvey = dots.filter((d) => shown.has(d.key)).length;
@@ -1053,7 +1077,7 @@ function renderHighCounts() {
     `${counts.length.toLocaleString()} ${what}; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
     `${high.length.toLocaleString()} ${highUnit(high.length)} at or above it are shown as dots in the strip: click one to show its station and ${state.mode === "month" ? "survey" : "season"}. ` +
     `Zeros (${(samples - counts.length).toLocaleString()} ${highUnit(samples - counts.length)} with none caught) are not part of the distribution.` +
-    (!shown.size ? "" : nInSurvey
+    (!shownText ? "" : nInSurvey
       ? ` ${shownText} (outlined in the calendar): ${nInSurvey} top-5% ${highUnit(nInSurvey)}, shown in blue.`
       : ` ${shownText} (outlined in the calendar) has no top-5% ${highUnit()}.`);
   renderHighCruises(high);
@@ -1182,6 +1206,7 @@ function renderHighCruises(high) {
     if (!c) return;
     stopPlay();
     c.go();
+    if (state.layer === "hydro") updateHydroSteps(ichthyoTime());
     render();
   });
 
@@ -1212,10 +1237,17 @@ function goToSample(d) {
   highSelected = { key: d.key, st: d.st };
   if (d.step) state.seasonPos = seasonSteps.findIndex((x) => stepKey(x) === d.key);
   else state.periodPos = available.indexOf(d.p);
-  state.station = d.st;
   dl.line = null;
-  render();
-  renderStationChart();
+  if (state.layer === "hydro") {
+    // The hydrography map moves to that time and station.
+    hstate.stationKey = meta.stations[d.st].key;
+    updateHydroSteps(ichthyoTime());
+    render();
+  } else {
+    state.station = d.st;
+    render();
+    renderStationChart();
+  }
   const s = meta.stations[d.st];
   if (!map.getBounds().contains([s.lon, s.lat])) map.easeTo({ center: [s.lon, s.lat] });
 }
@@ -1558,7 +1590,6 @@ async function init() {
   updateLayerControls();
   $("season-select").value = state.season;
   await createMap();
-  resolveHydroPendingStation();
 
   const start = fromHash.taxon || taxa.find((t) => t.scientific === "Engraulis mordax") || taxa[0];
   if (!fromHash.taxon) {

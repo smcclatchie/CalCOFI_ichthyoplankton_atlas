@@ -66,7 +66,7 @@ const hstate = {
   overlay: false,        // ichthyoplankton on top
   periodPos: 0,          // position within hAvailable
   seasonPos: 0,          // position within hSteps
-  station: null,         // hydro station index for the time series
+  stationKey: null,      // selected station "line station" (shared with the ichthyoplankton view)
 };
 let hmeta = null;
 const hcache = new Map();      // "source/depth" -> data
@@ -552,7 +552,7 @@ function addHydroLayers() {
   });
   map.on("mouseleave", "hydro-stations", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
   map.on("click", "hydro-stations", (e) => {
-    hstate.station = e.features[0].properties.st;
+    hstate.stationKey = hSrc().stations[e.features[0].properties.st].key;
     renderHydroChart();
     writeHash();
   });
@@ -641,7 +641,8 @@ async function renderHydro() {
   renderHydroMapLabel(when, periods, showFish, fishPeriods, fc);
   renderHydroLegend();
   if (showFish) renderLegend();
-  if (hstate.station !== null) renderHydroChart();
+  renderHighCounts();
+  if (hstate.stationKey !== null) renderHydroChart();
   else {
     $("station-panel").hidden = true;
     map.getSource("hydro-selected").setData(empty);
@@ -768,13 +769,21 @@ function hydroSeries(st) {
 }
 
 function renderHydroChart() {
-  const st = hstate.station;
-  const s = hSrc().stations[st];
-  if (!s) { hstate.station = null; $("station-panel").hidden = true; return; }
-  const series = hydroSeries(st);
+  const key = hstate.stationKey;
+  const st = hSrc().stations.findIndex((x) => x.key === key);
+  // A station with no data in this source keeps its ring (at the
+  // ichthyoplankton station's position) and says so.
+  const s = st >= 0 ? hSrc().stations[st] : meta.stations.find((x) => x.key === key);
+  if (!s) { hstate.stationKey = null; $("station-panel").hidden = true; return; }
   map.getSource("hydro-selected").setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: {} }] });
   $("station-panel").hidden = false;
   document.querySelector(".map-area").classList.add("station-open");
+  if (st < 0) {
+    $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — no ${hSourceWord()} data at this station`;
+    $("station-chart").innerHTML = "";
+    return;
+  }
+  const series = hydroSeries(st);
   $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — ${hSrc().label} ${hVar().label.toLowerCase()}${hUnits()} at ${hstate.depth} m (` +
     (state.mode === "month" ? `${series.length} survey months)` : `${state.season === "sequence" ? "all seasons" : state.season}, ${series.length} seasons)`);
   const box = $("station-chart");
@@ -853,7 +862,6 @@ function setupHydroControls() {
     if (hstate.source === b.dataset.value) return;
     hydroPendingTime = hTime();
     hstate.source = b.dataset.value;
-    hstate.station = null;
     setToggle("hydro-source", hstate.source);
     fillHydroDepths();
     render();
@@ -918,7 +926,7 @@ function writeHydroHash(params) {
   if (hstate.scale !== "floating" && hstate.compare) params.set("cmp", hstate.compare.join("-"));
   if (hstate.smoothing !== 75) params.set("L", hstate.smoothing);
   if (hstate.overlay) params.set("overlay", "1");
-  if (hstate.station !== null && hmeta) params.set("hst", hSrc().stations[hstate.station].key);
+  if (hstate.stationKey !== null) params.set("hst", hstate.stationKey);
   if (!hmeta) return;
   if (state.mode === "month" && hAvailable.length) params.set("survey", hSrc().periods[hAvailable[hstate.periodPos]].key);
   if (state.mode === "season" && hSteps.length) {
@@ -938,7 +946,7 @@ function readHydroHash(params) {
   if (cmp.length === 2 && cmp.every(Number.isFinite)) hstate.compare = [Math.min(...cmp), Math.max(...cmp)];
   if (SMOOTHING_KM.includes(Number(params.get("L")))) hstate.smoothing = Number(params.get("L"));
   hstate.overlay = params.get("overlay") === "1";
-  hydroPendingStation = params.get("hst");
+  if (params.get("layer") === "hydro" && params.has("hst")) hstate.stationKey = params.get("hst");
   // The time to open on.
   const survey = params.get("survey");
   if (survey) hydroPendingTime = Number(survey.slice(0, 4)) + (Number(survey.slice(5, 7)) - 0.5) / 12;
@@ -947,12 +955,4 @@ function readHydroHash(params) {
     const shown = state.season === "sequence" ? params.get("shown") : state.season;
     hydroPendingTime = seasonStart(SEASON_LABEL[shown] ? shown : "winter", year) + 1.5 / 12;
   }
-}
-let hydroPendingStation = null;
-
-function resolveHydroPendingStation() {
-  if (!hydroPendingStation || !hmeta) return;
-  const i = hSrc().stations.findIndex((s) => s.key === hydroPendingStation);
-  if (i >= 0) hstate.station = i;
-  hydroPendingStation = null;
 }
