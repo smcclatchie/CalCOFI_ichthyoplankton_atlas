@@ -547,8 +547,8 @@ function addHydroLayers() {
     const f = e.features[0].properties;
     const s = hSrc().stations[f.st];
     popup.setLngLat(e.lngLat).setHTML(`<strong>Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)}</strong><br>` +
-      `${state.mode === "season" ? "mean " : ""}${hFmt(f.v)}${hUnits()} at ${hstate.depth} m<br>` +
-      `<span style="color:#85837c">${f.casts} cast${f.casts > 1 ? "s" : ""}${f.months > 1 ? `, ${f.months} survey months` : ""}</span>`).addTo(map);
+      `${hFmt(f.v)}${hUnits()} at ${hstate.depth} m<br>` +
+      `<span style="color:#85837c">${f.months > 1 ? `mean of ${f.months} survey months, ` : ""}${f.casts} cast${f.casts > 1 ? "s" : ""}</span>`).addTo(map);
   });
   map.on("mouseleave", "hydro-stations", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
   map.on("click", "hydro-stations", (e) => {
@@ -636,7 +636,7 @@ async function renderHydro() {
   const when = !periods.length ? "" : state.mode === "month" ? hPeriodText(periods[0]) : seasonText(hSteps[hstate.seasonPos]);
   const casts = points.reduce((a, q) => a + q.casts, 0);
   $("period-label").textContent = periods.length
-    ? `${when}\n${state.mode === "season" ? `Mean of ${periods.map(hPeriodText).join(", ")} · ` : ""}${points.length} stations, ${casts} casts`
+    ? `${when}\n${state.mode === "season" ? `${periods.length > 1 ? "Survey months" : "Survey month"} ${periods.map(hPeriodText).join(", ")} · ` : ""}${points.length} stations, ${casts} casts`
     : `No ${hSourceWord()} data for this ${state.mode === "season" && state.season !== "sequence" ? "season" : "selection"}.`;
   renderHydroMapLabel(when, periods, showFish, fishPeriods, fc);
   renderHydroLegend();
@@ -665,7 +665,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
     const t = state.taxon;
     const name = speciesHTML(t);
     fish = fishPeriods.length
-      ? `<span class="bar-title">${name}, ${stageWord()} · ${meta.nets[state.net].code} net${state.mode === "season" ? " (season mean)" : ""}</span>${colourBar(300)}`
+      ? `<span class="bar-title">${name}, ${stageWord()} · ${meta.nets[state.net].code} net</span>${colourBar(300)}${multiNote()}`
       : `<span class="bar-title">${name}: no ${meta.nets[state.net].code}-net tows in this ${state.mode === "season" ? "season" : "month"}</span>`;
   }
   $("map-label").innerHTML = `<span class="when">${when}</span>${hydroWhat()}<br>Cruise${cruises.length > 1 ? "s" : ""} ${cruiseText}` +
@@ -837,7 +837,7 @@ function renderHydroChart() {
     if (!d) { tip.hidden = true; return; }
     tip.hidden = false;
     tip.textContent = d.step
-      ? `${seasonText(d.step)}: mean ${hFmt(d.v)}${hUnits()} (${d.months} survey month${d.months > 1 ? "s" : ""}, ${d.casts} cast${d.casts > 1 ? "s" : ""})`
+      ? `${seasonText(d.step)}: ${hFmt(d.v)}${hUnits()} (${d.months > 1 ? `mean of ${d.months} survey months` : "1 survey month"}, ${d.casts} cast${d.casts > 1 ? "s" : ""})`
       : `${hPeriodText(d.p)}: ${hFmt(d.v)}${hUnits()} (${d.casts} cast${d.casts > 1 ? "s" : ""})`;
     const rect = svg.getBoundingClientRect();
     tip.style.left = `${Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, (sx(d.x) / W) * rect.width - tip.offsetWidth / 2))}px`;

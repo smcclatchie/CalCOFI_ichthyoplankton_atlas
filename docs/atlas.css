@@ -143,6 +143,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .map-label .species { display: block; font-weight: 600; color: var(--text-primary); }
 .map-label .sci { font-style: italic; font-weight: 400; }
 .map-label .members { font-size: 11px; font-weight: 400; }
+.map-label .map-note { display: block; margin-top: 4px; font-size: 11px; color: var(--text-muted); }
 
 .segmented { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .segmented button {

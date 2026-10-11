@@ -35,7 +35,7 @@ const state = {
   net: 0,               // index into meta.nets
   mode: "month",        // "month" (one survey month) | "season" (one season of one year)
   periodPos: 0,         // position within the available survey months
-  season: "winter",     // one season stepped by year, or "sequence": every season in turn
+  season: "sequence",   // "sequence" (the default): every season in turn; or one season stepped by year
   seasonPos: 0,         // position within seasonSteps
   station: null,        // selected station index
   scaleMode: "fit",     // "fit" (this map's range) | "fixed" (same for all maps)
@@ -263,8 +263,11 @@ const shownPeriods = () => (state.mode === "month" ? (available.length ? [availa
 
 // ----------------------------------------------------------- rendering --
 
-// Station features for survey months `periods`: one month ("month"), or the
-// mean over a season's months ("season"). The hydrography overlay passes its own.
+// Station features for survey months `periods`: one month ("month"), or a
+// season's months ("season": a station's value is its standardised abundance,
+// or the mean of its survey months where it was sampled in more than one).
+// The hydrography overlay passes its own.
+let multiStations = 0;         // stations in the season shown with more than one survey month
 function features(periods = shownPeriods(), mode = state.mode) {
   const values = taxonCache.get(state.taxon.id);
   const rows = new Map();   // station -> {a, tows, n, hits}
@@ -278,15 +281,19 @@ function features(periods = shownPeriods(), mode = state.mode) {
     for (const p of periods) {
       for (const i of occupationRows(p)) {
         const a = values.get(catchKey(p, state.sampling, state.net, state.stage, occ.st[i])) || 0;
-        const r = rows.get(occ.st[i]) || { sum: 0, n: 0, hits: 0 };
+        const r = rows.get(occ.st[i]) || { sum: 0, n: 0, hits: 0, tows: 0 };
         r.sum += a;
         r.n += 1;
         r.hits += a > 0 ? 1 : 0;
+        r.tows += occ.t[i];
         rows.set(occ.st[i], r);
       }
     }
     for (const r of rows.values()) r.a = r.sum / r.n;
   }
+  // Stations sampled in more than one survey month of the season: only theirs
+  // is a mean (one cruise per season since the 1990s, often monthly before).
+  multiStations = [...rows.values()].filter((r) => (r.n ?? 1) > 1).length;
   scaleBreaks = computeScale([...rows.values()].map((r) => r.a));
   const out = [];
   for (const [st, r] of rows) {
@@ -324,7 +331,7 @@ function render() {
   } else {
     const months = seasonPeriods();
     $("period-label").textContent = months.length
-      ? `${seasonText()}\nMean of ${months.map(periodText).join(", ")} · ${sampled} stations, ${withCatch} with ${stageWord()}`
+      ? `${seasonText()}\n${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · ${sampled} stations, ${withCatch} with ${stageWord()}`
       : `No ${state.season === "sequence" ? "" : `${state.season} `}surveys with this net and sampling type.`;
   }
   renderMapLabel();
@@ -433,15 +440,21 @@ function renderMapLabel() {
     if (!months.length) { $("map-label").innerHTML = ""; return; }
     const cruises = [...new Set(months.flatMap((p) => meta.periods[p].cruises.map((c) => c.key)))].join(", ");
     $("map-label").innerHTML = `<span class="when">${seasonText()}</span>` +
-      `Mean of ${months.map(periodText).join(", ")} · cruise${cruises.includes(",") ? "s" : ""} ${cruises}<br>${what}` +
-      `<span class="bar-title">Mean ${unitsLabel()}</span>${colourBar(300)}`;
+      `${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · cruise${cruises.includes(",") ? "s" : ""} ${cruises}<br>${what}` +
+      `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}` + multiNote();
   }
 }
 
+// Said only where it is true: some stations in the season shown were sampled
+// in more than one survey month, so their values are means.
+function multiNote() {
+  if (state.mode !== "season" || !multiStations) return "";
+  return `<span class="map-note">Mean of the survey months where a station was sampled more than once ` +
+    `(${multiStations} station${multiStations > 1 ? "s" : ""}).</span>`;
+}
+
 function renderLegend() {
-  $("legend-title").textContent = state.mode === "season"
-    ? `Mean ${unitsLabel()}`
-    : `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
+  $("legend-title").textContent = `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
   $("legend-items").innerHTML = colourBar(280);
   setToggle("scale-toggle", state.scaleMode);
   const top = scaleBreaks[scaleBreaks.length - 1].toLocaleString();
@@ -582,10 +595,10 @@ function renderStationChart() {
     }
     if (!best || Math.abs(sx(best.x) - px) > 12) { tip.hidden = true; return; }
     tip.hidden = false;
-    const value = best.a > 0 ? `${best.step ? "mean " : ""}${fmt(best.a)} ${unitsLabel()}` : `no ${stageWord()} caught`;
+    const value = best.a > 0 ? `${fmt(best.a)} ${unitsLabel()}` : `no ${stageWord()} caught`;
     const tows = `${best.tows} tow${best.tows > 1 ? "s" : ""}`;
     tip.textContent = best.step
-      ? `${seasonText(best.step)}: ${value} (${best.n} survey month${best.n > 1 ? "s" : ""}, ${tows})`
+      ? `${seasonText(best.step)}: ${value} (${best.n > 1 ? `mean of ${best.n} survey months` : "1 survey month"}, ${tows})`
       : `${periodText(best.p)}: ${value} (${tows})`;
     const left = (sx(best.x) / W) * rect.width;
     tip.style.left = `${Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, left - tip.offsetWidth / 2))}px`;
@@ -941,7 +954,7 @@ function highCountData() {
         acc.set(k, r);
       }
     }
-    const all = [...acc.values()].map((r) => ({ a: r.sum / r.n, st: r.st, step: r.step, key: r.key }));
+    const all = [...acc.values()].map((r) => ({ a: r.sum / r.n, n: r.n, st: r.st, step: r.step, key: r.key }));
     return { counts: all.filter((r) => r.a > 0), samples: all.length };
   }
   const t = taxonCache.get(state.taxon.id).raw;
@@ -987,7 +1000,7 @@ function renderHighCounts() {
   const net = meta.nets[state.net];
   $("high-title").textContent =
     `${speciesName(state.taxon)}, ${stageWord()}, ${net.code} net, ${meta.samplings[state.sampling]} sampling` +
-    (state.mode === "season" ? `, ${state.season === "sequence" ? "all seasons" : state.season} (seasonal means)` : "");
+    (state.mode === "season" ? `, ${state.season === "sequence" ? "all seasons" : state.season} (by season)` : "");
   const box = $("high-chart");
   if (counts.length < 2) {
     box.innerHTML = "";
@@ -1092,7 +1105,8 @@ function renderHighCounts() {
     const d = nearest(event);
     if (!d) { tip.hidden = true; return; }
     tip.hidden = false;
-    tip.textContent = `${d.step ? "mean " : ""}${fmt(d.a)} ${unitsLabel()} · ${stationName(d.st)} · ${d.step ? seasonText(d.step) : periodText(d.p)}`;
+    tip.textContent = `${fmt(d.a)} ${unitsLabel()} · ${stationName(d.st)} · ${d.step ? seasonText(d.step) : periodText(d.p)}` +
+      (d.step && d.n > 1 ? ` (mean of ${d.n} survey months)` : "");
     const r = svg.getBoundingClientRect();
     tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, (d.zx / W) * r.width - tip.offsetWidth / 2))}px`;
     tip.style.top = `${(d.zy / Htot) * r.height - 30}px`;
@@ -1103,7 +1117,8 @@ function renderHighCounts() {
     if (d) goToSample(d);
   });
 
-  const what = state.mode === "month" ? "non-zero counts" : "non-zero seasonal means (one per station and season)";
+  const what = state.mode === "month" ? "non-zero counts"
+    : "non-zero station-season values (one per station and season; the mean where a station was sampled in more than one month)";
   $("high-note").textContent =
     `${counts.length.toLocaleString()} ${what}; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
     `${high.length.toLocaleString()} ${highUnit(high.length)} at or above it are shown as dots in the strip: click one to show its station and ${state.mode === "month" ? "survey" : "season"}. ` +
@@ -1651,10 +1666,11 @@ function createMap() {
       map.getCanvas().style.cursor = "pointer";
       const f = e.features[0].properties;
       const value = f.a > 0 ? `${fmt(f.a)} ${unitsLabel()}` : `no ${stageWord()} caught`;
-      const detail = state.mode === "month"
-        ? `${f.tows} tow${f.tows > 1 ? "s" : ""}`
-        : `mean of ${f.n} survey${f.n > 1 ? "s" : ""}, ${f.hits} with ${stageWord()}`;
-      popup.setLngLat(e.lngLat).setHTML(`<strong>${stationName(f.st)}</strong><br>${state.mode === "season" && f.a > 0 ? "mean " : ""}${value}<br><span style="color:#85837c">${detail}</span>`).addTo(map);
+      const multi = state.mode === "season" && f.n > 1;
+      const detail = multi
+        ? `mean of ${f.n} survey months, ${f.hits} with ${stageWord()}`
+        : `${f.tows} tow${f.tows > 1 ? "s" : ""}`;
+      popup.setLngLat(e.lngLat).setHTML(`<strong>${stationName(f.st)}</strong><br>${value}<br><span style="color:#85837c">${detail}</span>`).addTo(map);
     });
     map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
     map.on("click", layer, (e) => {
