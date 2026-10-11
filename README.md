@@ -1,4 +1,6 @@
-# CalCOFI Ichthyoplankton Atlas
+# CalCOFI Digital Atlas
+
+By [Sam McClatchie](https://www.fishingmaps.info). (Repository: CalCOFI_ichthyoplankton_atlas.)
 
 An interactive web atlas of fish eggs and larvae from CalCOFI plankton tows,
 1951–2023: choose a species by common or scientific name, a life stage, net

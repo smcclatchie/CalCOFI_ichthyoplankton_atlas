@@ -612,6 +612,7 @@ function renderStationChart() {
 }
 
 function closeStation() {
+  placeLogo();
   if (state.layer === "hydro") {
     hstate.stationKey = null;
     map.getSource("hydro-selected").setData({ type: "FeatureCollection", features: [] });
@@ -949,6 +950,7 @@ const shownTimeText = () => {
 const highUnit = (n = 2) => (state.mode === "month" ? (n === 1 ? "sample" : "samples") : (n === 1 ? "station-season" : "station-seasons"));
 
 function renderHighCounts() {
+  placeLogo();   // the panels may have opened or closed
   $("left-panels").hidden = !highOpen;
   $("high-toggle").setAttribute("aria-pressed", String(highOpen));
   if (!highOpen) return;
@@ -1492,6 +1494,58 @@ function symbolStyle(overHydro) {
   map.setPaintProperty("zero", "circle-opacity", overHydro ? 1 : 0.8);
 }
 
+// ---------------------------------------------------------------- logo --
+//
+// The CalCOFI logo is a brand label kept on land, as on the Fishing Maps:
+// the first place (right edge first) whose whole logo box is land and clear
+// of the map's panels, re-checked after every move or layout change. Hidden
+// when no such place is in view.
+const LOGO_PX = 72, LOGO_MARGIN = 14;
+let logoFrame = 0;
+
+function placeLogo() {
+  cancelAnimationFrame(logoFrame);
+  logoFrame = requestAnimationFrame(() => {
+    const logo = $("brand-logo");
+    if (!mapReady) return;
+    const area = document.querySelector(".map-area").getBoundingClientRect();
+    const W = area.width, H = area.height;
+    // Panels shown over the map (hidden or empty ones have no size).
+    const blockers = ["map-label", "left-panels", "station-panel", "status"]
+      .map((id) => $(id).getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({ l: r.left - area.left, t: r.top - area.top, r: r.right - area.left, b: r.bottom - area.top }));
+    const station = $("station-panel");
+    const bottom = (!station.hidden ? station.getBoundingClientRect().top - area.top : H - 34) - LOGO_MARGIN;   // clear of the scale bar
+    const clear = (x, y) => {
+      const box = { l: x - 4, t: y - 4, r: x + LOGO_PX + 4, b: y + LOGO_PX + 4 };
+      return x >= 0 && y >= 0 && box.r <= W && y + LOGO_PX <= bottom
+        && !blockers.some((r) => box.l < r.r && box.r > r.l && box.t < r.b && box.b > r.t);
+    };
+    const onLand = (x, y) => map.queryRenderedFeatures([x, y], { layers: ["land"] }).length > 0;
+    const allLand = (x, y) => {
+      for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) if (!onLand(x + (i / 4) * LOGO_PX, y + (j / 4) * LOGO_PX)) return false;
+      return true;
+    };
+    // Candidates: down the right edge, then the left edge, then a scan of the
+    // whole map (right to left), so the label sits at the map's edge when it can.
+    const STEP = 24, candidates = [];
+    for (let y = LOGO_MARGIN; y <= bottom - LOGO_PX; y += STEP) candidates.push([W - 56 - LOGO_PX, y], [W - LOGO_MARGIN - LOGO_PX, y]);
+    for (let y = LOGO_MARGIN; y <= bottom - LOGO_PX; y += STEP) candidates.push([LOGO_MARGIN, y]);
+    for (let x = W - LOGO_MARGIN - LOGO_PX - 40; x > LOGO_MARGIN; x -= 40) {
+      for (let y = LOGO_MARGIN; y <= bottom - LOGO_PX; y += 40) candidates.push([x, y]);
+    }
+    for (const [x, y] of candidates) {
+      if (!clear(x, y) || !onLand(x + LOGO_PX / 2, y + LOGO_PX / 2) || !allLand(x, y)) continue;
+      logo.style.left = `${x}px`;
+      logo.style.top = `${y}px`;
+      logo.hidden = false;
+      return;
+    }
+    logo.hidden = true;
+  });
+}
+
 // ----------------------------------------------------------------- map --
 
 function graticule() {
@@ -1574,6 +1628,9 @@ function createMap() {
       writeHash();
     });
   }
+  map.on("moveend", placeLogo);
+  map.on("resize", placeLogo);
+  map.on("idle", placeLogo);
   return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; resolve(); }));
 }
 

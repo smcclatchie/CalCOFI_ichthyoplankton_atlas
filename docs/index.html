@@ -3,14 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CalCOFI Ichthyoplankton Atlas</title>
-  <meta name="description" content="Fish egg and larva distributions from 70+ years of CalCOFI plankton tows, by species, month and season.">
+  <title>CalCOFI Digital Atlas</title>
+  <meta name="description" content="Fish egg and larva distributions from 70+ years of CalCOFI plankton tows, and CalCOFI bottle and CTD temperature, salinity and density, by month and season.">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.css">
   <link rel="stylesheet" href="atlas.css">
 </head>
 <body>
   <header class="topbar">
-    <h1>CalCOFI Ichthyoplankton Atlas</h1>
+    <div class="brand">
+      <h1>CalCOFI Digital Atlas</h1>
+      <p class="byline"><a href="https://www.fishingmaps.info" target="_blank" rel="noopener">Sam McClatchie</a></p>
+    </div>
     <p class="subtitle">Fish eggs and larvae from CalCOFI plankton tows, 1951–2023</p>
     <p class="dev-note" title="The page address always opens exactly the view you see, so it can be pasted into feedback.">In development ·
       <a href="https://github.com/smcclatchie/CalCOFI_ichthyoplankton_atlas/issues">feedback welcome</a> ·
@@ -183,6 +186,7 @@
     <section class="map-area">
       <div id="map" aria-label="Map of station abundance"></div>
       <div id="map-label" class="map-label" aria-live="polite"></div>
+      <img id="brand-logo" class="brand-logo" src="images/calcofi_logo.png" alt="CalCOFI logo" hidden>
       <div id="status" class="status" role="status" aria-live="polite"></div>
       <div id="left-panels" class="left-panels" hidden>
         <section id="high-panel" class="high-panel" aria-label="Distribution of counts">

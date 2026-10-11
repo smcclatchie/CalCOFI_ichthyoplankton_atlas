@@ -29,13 +29,17 @@ body {
 
 .topbar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 16px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
-.topbar h1 { margin: 0; font-size: 18px; font-weight: 600; white-space: nowrap; }
+.brand { display: flex; flex-direction: column; }
+.topbar h1 { margin: 0; font-size: 18px; font-weight: 600; white-space: nowrap; line-height: 1.2; }
+.byline { margin: 0; font-size: 12px; line-height: 1.3; white-space: nowrap; }
+.byline a { color: var(--accent); text-decoration: none; }
+.byline a:hover { text-decoration: underline; }
 .subtitle { margin: 0; color: var(--text-secondary); font-size: 13px; white-space: nowrap; }
 .dev-note {
   margin: 0 0 0 auto;
@@ -132,6 +136,9 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   pointer-events: none;
 }
 .map-label:empty { display: none; }
+/* CalCOFI logo: a brand label kept on land (see placeLogo in atlas.js). */
+.brand-logo { position: absolute; z-index: 2; width: 72px; height: 72px; pointer-events: none; border-radius: 4px; }
+.brand-logo[hidden] { display: none; }
 .map-label .when { display: block; font-size: 20px; font-weight: 600; color: var(--text-primary); }
 .map-label .species { display: block; font-weight: 600; color: var(--text-primary); }
 .map-label .sci { font-style: italic; font-weight: 400; }
