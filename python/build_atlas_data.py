@@ -58,6 +58,41 @@ REGION = (-160.0, 5.0, -85.0, 60.0)            # lon_min, lat_min, lon_max, lat_
 SEASONS = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",
            6: "summer", 7: "summer", 8: "summer", 9: "autumn", 10: "autumn", 11: "autumn"}
 
+# Combined entries: the sum of their members' abundance in each sample (each
+# member's value is a tow-weighted mean over the same tows, so the sum is the
+# combined mean). Added after the real taxa, so taxon ids and the per-line
+# download files are unchanged; they are not in the per-line files, so
+# all-species downloads never double-count.
+GROUPS = [
+    # The paired warm/cool mesopelagic indicator assemblage (the user's Table 1,
+    # as in the CalCOFI ternary plot). Its Vinciguerria is V. lucetia, the key
+    # species (user, 2026-10-12): the genus-level record the ternary code uses
+    # (worms:126194) has only 41 records, as almost all larvae are identified
+    # to species.
+    {"key": "group:warm-water", "common": "Warm-water associated larvae",
+     "members": ["worms:274961", "worms:278566", "worms:272733", "worms:712444", "worms:272656"],
+     "label": "Vinciguerria lucetia, Triphoturus mexicanus, Symbolophorus californiensis, "
+              "Bathylagoides wesethi, Ceratoscopelus townsendi"},
+    {"key": "group:cool-water", "common": "Cool-water associated larvae",
+     "members": ["worms:313514", "worms:254363", "worms:282927", "worms:281374", "worms:272919", "worms:272731"],
+     "label": "Leuroglossus stilbius, Stenobrachius leucopsarus, Tarletonbeania crenularis, "
+              "Lipolagus ochotensis, Bathylagus pacificus, Protomyctophum crockeri"},
+]
+# The top of the species list, in this order; everything else follows.
+FEATURED = [
+    "group:warm-water", "group:cool-water",
+    "worms:272286",   # northern anchovy
+    "worms:217452",   # Pacific sardine
+    "worms:272458",   # Pacific hake
+    "worms:127022",   # Pacific (chub) mackerel
+    "worms:273305",   # jack mackerel
+    "worms:274806",   # shortbelly rockfish, Sebastes jordani (the most abundant species-level Sebastes)
+    "worms:274812",   # cowcod, Sebastes levis
+    "worms:274961",   # Panama lightfish, Vinciguerria lucetia
+    "worms:278566", "worms:272733", "worms:712444", "worms:272656",                      # warm-water taxa
+    "worms:313514", "worms:254363", "worms:282927", "worms:281374", "worms:272919", "worms:272731",   # cool-water taxa
+]
+
 
 def sig4(x):
     """Round to 4 significant figures (abundance spans >6 orders of magnitude)."""
@@ -176,8 +211,42 @@ def main():
                      "topNet": index["net"][r.top_net],
                      "netRows": r.net_rows})          # records per net, in meta.nets order
 
+    # ---- combined entries (see GROUPS) ----
+    def taxon_stats(t):
+        return {"rows": int(len(t)), "eggs": int((t.life_stage == "egg").sum()),
+                "larvae": int((t.life_stage == "larva").sum()),
+                "topNet": index["net"][t.net_type.value_counts().index[0]],
+                "netRows": [int((t.net_type == n).sum()) for n in nets]}
+
+    real = {t["key"] for t in taxa}
+    for g in GROUPS:
+        missing = [m for m in g["members"] if m not in real]
+        if missing:
+            raise SystemExit(f"{g['key']}: members not in the data: {missing}")
+        t = (c[c.taxon_key.isin(g["members"])]
+             .groupby(occ_keys + ["life_stage"]).abundance.sum().reset_index())
+        t["abundance"] = sig4(t.abundance)
+        i = len(taxa)
+        dump({"p": t.period.map(index["period"]).tolist(),
+              "s": t.sampling.map(index["sampling"]).tolist(),
+              "n": t.net_type.map(index["net"]).tolist(),
+              "g": t.life_stage.map(index["stage"]).tolist(),
+              "st": t.site_key.map(index["station"]).tolist(),
+              "a": t.abundance.tolist()},
+             os.path.join(taxa_dir, f"{i}.json"))
+        taxa.append({"id": i, "key": g["key"], "scientific": g.get("scientific", g["label"]),
+                     "common": g["common"], "family": None, "group": True,
+                     "members": g["label"], **taxon_stats(t)})
+
+    # The featured order (the species list's top): rank 0, 1, ...
+    by_key = {t["key"]: t for t in taxa}
+    for rank, key in enumerate(FEATURED):
+        if key not in by_key:
+            raise SystemExit(f"featured taxon not in the data: {key}")
+        by_key[key]["featured"] = rank
+
     # ---- per-line files: all taxa on one CalCOFI line, for CSV downloads ----
-    taxon_id = {t["key"]: t["id"] for t in taxa}
+    taxon_id = {t["key"]: t["id"] for t in taxa if not t.get("group")}
     lines_dir = os.path.join(args.out_dir, "lines")
     shutil.rmtree(lines_dir, ignore_errors=True)
     os.makedirs(lines_dir)

@@ -160,7 +160,14 @@ const stageWord = (plural = true) => {
 };
 const unitsLabel = () => `${stageWord()} ${meta.nets[state.net].units}`;
 const fmt = (a) => (a >= 100 ? Math.round(a).toLocaleString() : a >= 1 ? a.toFixed(1) : a.toPrecision(2));
-const speciesName = (t) => (t.common ? `${t.common} (${t.scientific})` : t.scientific);
+// Groups (combined taxa, e.g. "Warm-water associated larvae") go by their name;
+// their members are listed in the species details and the map label.
+const speciesName = (t) => (t.group ? t.common : t.common ? `${t.common} (${t.scientific})` : t.scientific);
+const speciesHTML = (t) => (t.group
+  ? `${t.common} <span class="members">(<span class="sci">${t.members}</span>)</span>`
+  : t.common ? `${t.common} <span class="sci">(${t.scientific})</span>` : `<span class="sci">${t.scientific}</span>`);
+// Featured taxa (the top of the species list, in their set order), then the rest.
+const featuredFirst = (list) => [...list].sort((a, b) => (a.featured ?? Infinity) - (b.featured ?? Infinity));
 const titleCase = (s) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 function stationName(st) {
@@ -412,7 +419,7 @@ function placeLineLabels(stationList, axes) {
 function renderMapLabel() {
   const t = state.taxon;
   const net = meta.nets[state.net];
-  const what = `<span class="species">${t.common ? `${t.common} <span class="sci">(${t.scientific})</span>` : `<span class="sci">${t.scientific}</span>`}</span>` +
+  const what = `<span class="species">${speciesHTML(t)}</span>` +
     `${titleCase(stageWord())} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
   if (state.mode === "month") {
     if (!available.length) { $("map-label").innerHTML = ""; return; }
@@ -633,10 +640,10 @@ function fillSelect(select, options, value) {
 
 function speciesMatches(query) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return taxa.filter((t) => {
+  return featuredFirst(taxa.filter((t) => {
     const text = `${t.common || ""} ${t.scientific} ${t.family || ""}`.toLowerCase();
     return words.every((w) => text.includes(w));
-  }).slice(0, 40);
+  })).slice(0, 40);
 }
 
 function setupSpeciesPicker() {
@@ -644,13 +651,21 @@ function setupSpeciesPicker() {
   const list = $("species-list");
   let matches = [];
   let active = -1;
+  let previewed = false;       // whether the highlighted entry is the one on the map
 
   const show = () => {
-    matches = speciesMatches(input.value);
-    active = matches.length ? 0 : -1;
+    // The box still holding the current species' name counts as empty: show
+    // the featured list first.
+    const query = state.taxon && input.value === speciesName(state.taxon) ? "" : input.value;
+    matches = speciesMatches(query);
+    // Start from the species shown, if it is listed, so the arrows step on from
+    // it; otherwise highlight the first match (Enter chooses it).
+    const current = matches.indexOf(state.taxon);
+    active = current >= 0 ? current : matches.length ? 0 : -1;
+    previewed = current >= 0;
     list.innerHTML = matches.map((t, i) =>
       `<li role="option" data-id="${t.id}" aria-selected="${i === active}">` +
-      `${t.common ? `${t.common} · ` : ""}<span class="sci">${t.scientific}</span>` +
+      (t.group ? `<strong>${t.common}</strong>` : `${t.common ? `${t.common} · ` : ""}<span class="sci">${t.scientific}</span>`) +
       `<span class="count">${t.rows.toLocaleString()}</span></li>`).join("");
     list.hidden = matches.length === 0;
   };
@@ -667,8 +682,19 @@ function setupSpeciesPicker() {
   input.addEventListener("focus", () => { input.select(); show(); });
   input.addEventListener("input", show);
   input.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowDown") { active = Math.min(active + 1, matches.length - 1); highlight(); event.preventDefault(); }
-    if (event.key === "ArrowUp") { active = Math.max(active - 1, 0); highlight(); event.preventDefault(); }
+    // Arrow keys step through the list and show each species as they go (as the
+    // depth selector does); the typed text stays, so the list stays put.
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (list.hidden) show();
+      // The first press after typing shows the highlighted (first) match itself.
+      const next = !previewed ? active : event.key === "ArrowDown" ? Math.min(active + 1, matches.length - 1) : Math.max(active - 1, 0);
+      if (next < 0) return;
+      previewed = true;
+      active = next;
+      highlight();
+      selectTaxon(matches[active], true, { keepInput: true });
+    }
     if (event.key === "Enter" && active >= 0) { choose(matches[active]); input.blur(); }
     if (event.key === "Escape") { list.hidden = true; input.value = speciesName(state.taxon); input.blur(); }
   });
@@ -683,14 +709,16 @@ function setupSpeciesPicker() {
 }
 
 function setupSpeciesSelect() {
-  const label = (t) => (t.common ? `${t.common} — ${t.scientific}` : t.scientific);
-  const sorted = [...taxa].sort((a, b) => label(a).localeCompare(label(b)));
-  $("species-select").innerHTML = sorted
-    .map((t) => `<option value="${t.id}">${label(t)} (${t.rows.toLocaleString()})</option>`).join("");
+  const label = (t) => (t.group ? t.common : t.common ? `${t.common} — ${t.scientific}` : t.scientific);
+  const option = (t) => `<option value="${t.id}">${label(t)} (${t.rows.toLocaleString()})</option>`;
+  const featured = featuredFirst(taxa.filter((t) => t.featured !== undefined));
+  const all = taxa.filter((t) => !t.group).sort((a, b) => label(a).localeCompare(label(b)));
+  $("species-select").innerHTML = `<optgroup label="Featured">${featured.map(option).join("")}</optgroup>` +
+    `<optgroup label="All taxa (A–Z)">${all.map(option).join("")}</optgroup>`;
   $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
 }
 
-async function selectTaxon(t, resetNet) {
+async function selectTaxon(t, resetNet, { keepInput = false } = {}) {
   stopPlay();
   state.taxon = t;
   if (resetNet) {
@@ -699,10 +727,11 @@ async function selectTaxon(t, resetNet) {
     state.net = bongo >= 0 && t.netRows[bongo] > 0 ? bongo : t.topNet;
     if ((meta.stages[state.stage] === "egg" ? t.eggs : t.larvae) === 0) state.stage = t.eggs > 0 ? 0 : 1;
   }
-  $("species-input").value = speciesName(t);
+  if (!keepInput) $("species-input").value = speciesName(t);
   $("species-select").value = String(t.id);
-  $("species-detail").textContent =
-    `${t.family ? `${t.family} · ` : ""}${t.larvae.toLocaleString()} larva and ${t.eggs.toLocaleString()} egg records`;
+  $("species-detail").textContent = t.group
+    ? `Group: the summed abundance of ${t.members} · ${t.larvae.toLocaleString()} larva records`
+    : `${t.family ? `${t.family} · ` : ""}${t.larvae.toLocaleString()} larva and ${t.eggs.toLocaleString()} egg records`;
   $("stage-select").value = String(state.stage);
   $("net-select").value = String(state.net);
   $("status").textContent = "Loading…";

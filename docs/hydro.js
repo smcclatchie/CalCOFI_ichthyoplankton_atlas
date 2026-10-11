@@ -663,7 +663,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
   let fish = "";
   if (showFish) {
     const t = state.taxon;
-    const name = t.common ? `${t.common} <span class="sci">(${t.scientific})</span>` : `<span class="sci">${t.scientific}</span>`;
+    const name = speciesHTML(t);
     fish = fishPeriods.length
       ? `<span class="bar-title">${name}, ${stageWord()} · ${meta.nets[state.net].code} net${state.mode === "season" ? " (season mean)" : ""}</span>${colourBar(300)}`
       : `<span class="bar-title">${name}: no ${meta.nets[state.net].code}-net tows in this ${state.mode === "season" ? "season" : "month"}</span>`;
