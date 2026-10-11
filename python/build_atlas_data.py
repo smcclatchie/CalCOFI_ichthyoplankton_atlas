@@ -87,6 +87,7 @@ FEATURED = [
     "worms:127022",   # Pacific (chub) mackerel
     "worms:273305",   # jack mackerel
     "worms:274806",   # shortbelly rockfish, Sebastes jordani (the most abundant species-level Sebastes)
+    "worms:274833",   # bocaccio, Sebastes paucispinis
     "worms:274812",   # cowcod, Sebastes levis
     "worms:274961",   # Panama lightfish, Vinciguerria lucetia
     "worms:278566", "worms:272733", "worms:712444", "worms:272656",                      # warm-water taxa
