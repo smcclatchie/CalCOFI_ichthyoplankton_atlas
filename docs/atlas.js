@@ -786,7 +786,7 @@ const HIGH_PERCENTILE = 0.95;
 const HIGH_DOT_COLOR = "#8f8e88";        // ring colour for top-5% samples not highlighted
 const HIGH_SELECTED_COLOR = "#d62728";   // the selected sample
 let highOpen = false;
-let highSelected = null;       // {p, st} of the dot last clicked
+let highSelected = null;       // {key, st} of the dot last clicked
 
 function quantile(sorted, q) {
   const pos = (sorted.length - 1) * q;
@@ -794,18 +794,51 @@ function quantile(sorted, q) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
+// The values the distribution is built from, matching what the map shows.
+// "By month": every sample (station x survey month), keyed by survey month.
+// "By season": one value per station and season year -- the mean of its survey
+// months, zeros included, as on the map -- for the selected season (every
+// season when stepping in sequence), keyed "year-season".
+const stepKey = (step) => `${step.year}-${step.season}`;
+
 function highCountData() {
+  if (state.mode === "season") {
+    const values = taxonCache.get(state.taxon.id);
+    const acc = new Map();
+    for (const p of available) {
+      const period = meta.periods[p];
+      if (!seasonMatches(period.season)) continue;
+      const step = { season: period.season, year: seasonYear(period) };
+      for (const i of occupationRows(p)) {
+        const st = occ.st[i];
+        const k = `${stepKey(step)}|${st}`;
+        const r = acc.get(k) || { st, step, key: stepKey(step), sum: 0, n: 0 };
+        r.sum += values.get(catchKey(p, state.sampling, state.net, state.stage, st)) || 0;
+        r.n += 1;
+        acc.set(k, r);
+      }
+    }
+    const all = [...acc.values()].map((r) => ({ a: r.sum / r.n, st: r.st, step: r.step, key: r.key }));
+    return { counts: all.filter((r) => r.a > 0), samples: all.length };
+  }
   const t = taxonCache.get(state.taxon.id).raw;
   const counts = [];
   for (let i = 0; i < t.a.length; i++) {
     if (t.s[i] === state.sampling && t.n[i] === state.net && t.g[i] === state.stage) {
-      counts.push({ a: t.a[i], p: t.p[i], st: t.st[i] });
+      counts.push({ a: t.a[i], p: t.p[i], key: t.p[i], st: t.st[i] });
     }
   }
   let samples = 0;
   for (let i = 0; i < occ.p.length; i++) if (occ.s[i] === state.sampling && occ.n[i] === state.net) samples++;
   return { counts, samples };
 }
+
+// What the map shows now, as distribution keys.
+const shownKeys = () => new Set(state.mode === "month"
+  ? shownPeriods()
+  : (seasonSteps.length ? [stepKey(seasonSteps[state.seasonPos])] : []));
+// Words for the distribution's units.
+const highUnit = (n = 2) => (state.mode === "month" ? (n === 1 ? "sample" : "samples") : (n === 1 ? "station-season" : "station-seasons"));
 
 function renderHighCounts() {
   $("left-panels").hidden = !highOpen;
@@ -814,7 +847,8 @@ function renderHighCounts() {
   const { counts, samples } = highCountData();
   const net = meta.nets[state.net];
   $("high-title").textContent =
-    `${speciesName(state.taxon)}, ${stageWord()}, ${net.code} net, ${meta.samplings[state.sampling]} sampling`;
+    `${speciesName(state.taxon)}, ${stageWord()}, ${net.code} net, ${meta.samplings[state.sampling]} sampling` +
+    (state.mode === "season" ? `, ${state.season === "sequence" ? "all seasons" : state.season} (seasonal means)` : "");
   const box = $("high-chart");
   if (counts.length < 2) {
     box.innerHTML = "";
@@ -857,7 +891,7 @@ function renderHighCounts() {
   parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="#85837c"/>`);
   parts.push(`<text x="${m.l - 6}" y="${m.t + 10}" text-anchor="end" font-size="11" fill="#85837c">${hMax}</text>`);
   parts.push(`<text x="${m.l - 6}" y="${H - m.b}" text-anchor="end" font-size="11" fill="#85837c">0</text>`);
-  parts.push(`<text transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" font-size="11" fill="#85837c">samples</text>`);
+  parts.push(`<text transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" font-size="11" fill="#85837c">${highUnit()}</text>`);
   const xp = sx(lx(p95));
   parts.push(`<line x1="${xp}" x2="${xp}" y1="${m.t}" y2="${H - m.b}" stroke="#1f1e1c" stroke-dasharray="4 3"/>`);
   parts.push(`<text x="${xp - 4}" y="${m.t + 11}" text-anchor="end" font-size="11" fill="#1f1e1c">95th percentile</text>`);
@@ -870,7 +904,7 @@ function renderHighCounts() {
   parts.push(`<rect x="${m.l}" y="${zt}" width="${W - m.l - m.r}" height="${zb - zt}" fill="#f6efe0"/>`);
   parts.push(`<line x1="${xp}" x2="${m.l}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
   parts.push(`<line x1="${sx(x1)}" x2="${W - m.r}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
-  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">Top 5% samples: click a dot</text>`);
+  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">Top 5% ${highUnit()}: click a dot</text>`);
   for (const v of [p95, 10 ** ((z0 + z1) / 2), sorted[sorted.length - 1]]) {
     parts.push(`<text x="${zx(lx(v))}" y="${Htot - 6}" text-anchor="middle" font-size="11" fill="#85837c">${fmt(v)}</text>`);
   }
@@ -884,11 +918,11 @@ function renderHighCounts() {
   // filled in the calendar's outline blue; the clicked sample filled red. Same
   // size, drawn in that order so highlighted dots are never hidden, and the
   // hollow rings let the filled ones stand out.
-  const shown = new Set(shownPeriods());
-  const shownText = state.mode === "month" ? (shown.size ? periodText([...shown][0]) : "") : (shown.size ? seasonText() : "");
-  const isSel = (d) => highSelected && highSelected.p === d.p && highSelected.st === d.st;
-  const inSurvey = (d) => shown.has(d.p) && !isSel(d);
-  const nInSurvey = dots.filter((d) => shown.has(d.p)).length;
+  const shown = shownKeys();
+  const shownText = !shown.size ? "" : state.mode === "month" ? periodText([...shown][0]) : seasonText();
+  const isSel = (d) => highSelected && highSelected.key === d.key && highSelected.st === d.st;
+  const inSurvey = (d) => shown.has(d.key) && !isSel(d);
+  const nInSurvey = dots.filter((d) => shown.has(d.key)).length;
   for (const d of [...dots.filter((x) => !isSel(x) && !inSurvey(x)), ...dots.filter(inSurvey), ...dots.filter(isSel)]) {
     if (isSel(d) || inSurvey(d)) {
       const fill = isSel(d) ? HIGH_SELECTED_COLOR : CRUISE_SELECTED_COLOR;
@@ -919,7 +953,7 @@ function renderHighCounts() {
     const d = nearest(event);
     if (!d) { tip.hidden = true; return; }
     tip.hidden = false;
-    tip.textContent = `${fmt(d.a)} ${unitsLabel()} · ${stationName(d.st)} · ${periodText(d.p)}`;
+    tip.textContent = `${d.step ? "mean " : ""}${fmt(d.a)} ${unitsLabel()} · ${stationName(d.st)} · ${d.step ? seasonText(d.step) : periodText(d.p)}`;
     const r = svg.getBoundingClientRect();
     tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, (d.zx / W) * r.width - tip.offsetWidth / 2))}px`;
     tip.style.top = `${(d.zy / Htot) * r.height - 30}px`;
@@ -930,20 +964,22 @@ function renderHighCounts() {
     if (d) goToSample(d);
   });
 
+  const what = state.mode === "month" ? "non-zero counts" : "non-zero seasonal means (one per station and season)";
   $("high-note").textContent =
-    `${counts.length.toLocaleString()} non-zero counts; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
-    `${high.length.toLocaleString()} samples at or above it are shown as dots in the strip: click one to show its station and survey. ` +
-    `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.` +
+    `${counts.length.toLocaleString()} ${what}; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
+    `${high.length.toLocaleString()} ${highUnit(high.length)} at or above it are shown as dots in the strip: click one to show its station and ${state.mode === "month" ? "survey" : "season"}. ` +
+    `Zeros (${(samples - counts.length).toLocaleString()} ${highUnit(samples - counts.length)} with none caught) are not part of the distribution.` +
     (!shown.size ? "" : nInSurvey
-      ? ` ${shownText} (outlined in the calendar): ${nInSurvey} top-5% sample${nInSurvey > 1 ? "s" : ""}, shown in blue.`
-      : ` ${shownText} (outlined in the calendar) has no top-5% samples.`);
+      ? ` ${shownText} (outlined in the calendar): ${nInSurvey} top-5% ${highUnit(nInSurvey)}, shown in blue.`
+      : ` ${shownText} (outlined in the calendar) has no top-5% ${highUnit()}.`);
   renderHighCruises(high);
 }
 
-// Survey-month calendar of the top-5% samples: years across, months down, so
-// the years and seasons of the high counts show at a glance. Blank = not
-// sampled with this net and sampling type; grey = sampled, no top-5% sample;
-// orange (darker = more) = survey months holding top-5% samples.
+// Calendar of the top-5% values: years across; survey months down ("By month")
+// or seasons down ("By season": only the selected season, or all four in
+// sequence), so the years and seasons of the high counts show at a glance.
+// Blank = not sampled with this net and sampling type; grey = sampled, no
+// top-5% value; orange (darker = more) = cells holding top-5% values.
 const CRUISE_BINS = [
   { min: 1, max: 1, color: "#fdd0a2", label: "1" },
   { min: 2, max: 4, color: "#fd8d3c", label: "2–4" },
@@ -953,109 +989,148 @@ const CRUISE_BINS = [
 const SAMPLED_NO_TOP = "#e4e2db";
 const CRUISE_SELECTED_COLOR = "#0057e7";   // outline of the survey shown on the map
 const MONTH_LETTERS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+const SEASON_LETTERS = { winter: "W", spring: "Sp", summer: "Su", autumn: "A" };
+const CAL_ROW_PX = { month: 12.5, season: 24 };   // cell height
+
+function calendarCells() {
+  // [{key, year, row, season, text(), cruises, go()}] plus the row labels.
+  const byMonth = state.mode === "month";
+  const rows = byMonth ? MONTH_LETTERS : SEASONS.filter(seasonMatches).map((x) => SEASON_LETTERS[x]);
+  const cells = [];
+  if (byMonth) {
+    for (const p of available) {
+      const period = meta.periods[p];
+      cells.push({
+        key: p, year: period.year, row: period.month - 1, season: period.season, text: periodText(p), cruises: period.cruises,
+        go: () => { state.periodPos = available.indexOf(p); },
+      });
+    }
+  } else {
+    const seasonRows = SEASONS.filter(seasonMatches);
+    seasonSteps.forEach((step, i) => {
+      cells.push({
+        key: stepKey(step), year: step.year, row: seasonRows.indexOf(step.season), season: step.season, text: seasonText(step),
+        cruises: seasonPeriods(step).flatMap((p) => meta.periods[p].cruises),
+        go: () => { state.seasonPos = i; },
+      });
+    });
+  }
+  return { rows, cells };
+}
 
 function renderHighCruises(high) {
   const box = $("cruise-chart");
-  if (!high.length || !available.length) {
+  const byMonth = state.mode === "month";
+  $("cruise-title").textContent = byMonth ? "Top 5% samples by survey month" : "Top 5% station-seasons by season";
+  const { rows, cells } = calendarCells();
+  const m = { l: 22, r: 6, t: 4, b: 18 };
+  const H = Math.round(m.t + m.b + rows.length * CAL_ROW_PX[state.mode]);
+  box.style.height = `${H}px`;
+  if (!high.length || !cells.length) {
     box.innerHTML = "";
     $("cruise-note").textContent = "";
     return;
   }
-  const top = new Map();       // period -> number of top-5% samples
-  for (const c of high) top.set(c.p, (top.get(c.p) || 0) + 1);
-  const sampled = new Map();   // period -> stations sampled
-  for (let i = 0; i < occ.p.length; i++) {
-    if (occ.s[i] === state.sampling && occ.n[i] === state.net) sampled.set(occ.p[i], (sampled.get(occ.p[i]) || 0) + 1);
+  const top = new Map();       // cell key -> number of top-5% values
+  for (const c of high) top.set(c.key, (top.get(c.key) || 0) + 1);
+  const sampled = new Map();   // cell key -> stations sampled
+  if (byMonth) {
+    for (let i = 0; i < occ.p.length; i++) {
+      if (occ.s[i] === state.sampling && occ.n[i] === state.net) sampled.set(occ.p[i], (sampled.get(occ.p[i]) || 0) + 1);
+    }
+  } else {
+    for (const c of cells) sampled.set(c.key, new Set(seasonPeriods(seasonSteps.find((st) => stepKey(st) === c.key)).flatMap((p) => occupationRows(p).map((i) => occ.st[i]))).size);
   }
-  const years = available.map((p) => meta.periods[p].year);
+  const years = cells.map((c) => c.year);
   const y0 = Math.min(...years), y1 = Math.max(...years);
-  const W = box.clientWidth || 440, H = box.clientHeight || 168;
-  const m = { l: 18, r: 6, t: 4, b: 18 };
-  const cw = (W - m.l - m.r) / (y1 - y0 + 1), ch = (H - m.t - m.b) / 12;
-  const cellAt = new Map();    // "year-month" -> period
+  const W = box.clientWidth || 440;
+  const cw = (W - m.l - m.r) / (y1 - y0 + 1), ch = (H - m.t - m.b) / rows.length;
+  const cellAt = new Map();    // "year-row" -> cell
   const parts = [];
-  const current = new Set(shownPeriods());
+  const current = shownKeys();
   let selectedRect = "";
-  for (const p of available) {
-    const period = meta.periods[p];
-    cellAt.set(`${period.year}-${period.month}`, p);
-    const x = m.l + (period.year - y0) * cw, y = m.t + (period.month - 1) * ch;
-    const n = top.get(p) || 0;
+  for (const c of cells) {
+    cellAt.set(`${c.year}-${c.row}`, c);
+    const x = m.l + (c.year - y0) * cw, y = m.t + c.row * ch;
+    const n = top.get(c.key) || 0;
     const fill = n ? CRUISE_BINS.find((b) => n >= b.min && n <= b.max).color : SAMPLED_NO_TOP;
     parts.push(`<rect x="${x + 0.3}" y="${y + 0.3}" width="${Math.max(0.8, cw - 0.6)}" height="${ch - 0.6}" fill="${fill}"/>`);
-    if (current.has(p)) {
+    if (current.has(c.key)) {
       // Bold blue (the strongest contrast with the orange cells) over a white
       // halo, so the shown survey stands out on any cell colour.
-      const box = `x="${x - 1}" y="${y - 1}" width="${cw + 2}" height="${ch + 2}" fill="none"`;
-      selectedRect += `<rect ${box} stroke="#ffffff" stroke-width="4.5"/><rect ${box} stroke="${CRUISE_SELECTED_COLOR}" stroke-width="2.5"/>`;
+      const r = `x="${x - 1}" y="${y - 1}" width="${cw + 2}" height="${ch + 2}" fill="none"`;
+      selectedRect += `<rect ${r} stroke="#ffffff" stroke-width="4.5"/><rect ${r} stroke="${CRUISE_SELECTED_COLOR}" stroke-width="2.5"/>`;
     }
   }
   parts.push(selectedRect);
-  MONTH_LETTERS.forEach((l, i) => parts.push(
+  rows.forEach((l, i) => parts.push(
     `<text x="${m.l - 5}" y="${m.t + (i + 0.5) * ch + 3.5}" text-anchor="end" font-size="9" fill="#85837c">${l}</text>`));
   for (let yr = Math.ceil(y0 / 10) * 10; yr <= y1; yr += 10) {
     parts.push(`<text x="${m.l + (yr - y0 + 0.5) * cw}" y="${H - 5}" text-anchor="middle" font-size="10" fill="#85837c">${yr}</text>`);
   }
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Survey months holding top 5% samples, by year and month">${parts.join("")}</svg>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${byMonth ? "Survey months" : "Seasons"} holding top 5% values, by year">${parts.join("")}</svg>`;
 
   const tip = document.createElement("div");
   tip.className = "chart-tip";
   tip.hidden = true;
   box.appendChild(tip);
   const svg = box.querySelector("svg");
-  const periodAt = (event) => {
+  const cellOf = (event) => {
     const r = svg.getBoundingClientRect();
     const px = ((event.clientX - r.left) / r.width) * W, py = ((event.clientY - r.top) / r.height) * H;
-    const year = y0 + Math.floor((px - m.l) / cw), month = 1 + Math.floor((py - m.t) / ch);
-    return cellAt.get(`${year}-${month}`);
+    return cellAt.get(`${y0 + Math.floor((px - m.l) / cw)}-${Math.floor((py - m.t) / ch)}`);
   };
   svg.addEventListener("mousemove", (event) => {
-    const p = periodAt(event);
-    if (p === undefined) { tip.hidden = true; svg.style.cursor = ""; return; }
+    const c = cellOf(event);
+    if (!c) { tip.hidden = true; svg.style.cursor = ""; return; }
     svg.style.cursor = "pointer";
-    const period = meta.periods[p];
-    const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
+    const cruises = c.cruises.map((x) => `${x.key}${x.ship ? ` (${titleCase(x.ship)})` : ""}`).join(", ");
     tip.hidden = false;
-    tip.textContent = `${periodText(p)}: ${top.get(p) || 0} of ${sampled.get(p) || 0} samples in the top 5% · ${cruises}`;
+    tip.textContent = `${c.text}: ${top.get(c.key) || 0} of ${sampled.get(c.key) || 0} ${byMonth ? "samples" : "stations"} in the top 5% · ${cruises}`;
     const r = svg.getBoundingClientRect();
-    const cx = ((m.l + (period.year - y0 + 0.5) * cw) / W) * r.width;
+    const cx = ((m.l + (c.year - y0 + 0.5) * cw) / W) * r.width;
     tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, cx - tip.offsetWidth / 2))}px`;
-    tip.style.top = `${((m.t + (period.month - 1) * ch) / H) * r.height - 30}px`;
+    tip.style.top = `${((m.t + c.row * ch) / H) * r.height - 30}px`;
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
   svg.addEventListener("click", (event) => {
-    const p = periodAt(event);
-    if (p === undefined) return;
+    const c = cellOf(event);
+    if (!c) return;
     stopPlay();
-    state.periodPos = available.indexOf(p);
-    if (state.mode !== "month") setMode("month"); else render();
+    c.go();
+    render();
   });
 
-  // Summary: top-5% samples by season and by decade.
+  // Summary: top-5% values by season and by decade.
   const bySeason = { winter: 0, spring: 0, summer: 0, autumn: 0 };
   const byDecade = new Map();
-  for (const c of high) {
-    const period = meta.periods[c.p];
-    bySeason[period.season]++;
-    const dec = Math.floor(period.year / 10) * 10;
+  for (const h of high) {
+    const season = h.step ? h.step.season : meta.periods[h.p].season;
+    const year = h.step ? h.step.year : meta.periods[h.p].year;
+    bySeason[season]++;
+    const dec = Math.floor(year / 10) * 10;
     byDecade.set(dec, (byDecade.get(dec) || 0) + 1);
   }
   const decades = [...byDecade].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([d, n]) => `${d}s (${n})`).join(", ");
   const legend = [`<span class="swatch-sq" style="background:${SAMPLED_NO_TOP}"></span>sampled, none`]
     .concat(CRUISE_BINS.map((b) => `<span style="white-space:nowrap"><span class="swatch-sq" style="background:${b.color}"></span>${b.label}</span>`)).join(" ");
+  const seasonsShown = byMonth ? SEASONS : SEASONS.filter(seasonMatches);
+  const bySeasonText = seasonsShown.length > 1
+    ? ` By season: ${seasonsShown.map((x) => `${x} ${bySeason[x]}`).join(", ")}.` : "";
+  const unit = byMonth ? "survey months" : "seasons";
   $("cruise-note").innerHTML =
-    `${top.size} survey months hold top-5% samples. By season: winter ${bySeason.winter}, spring ${bySeason.spring}, ` +
-    `summer ${bySeason.summer}, autumn ${bySeason.autumn}. Most in the ${decades}. Click a month to show it on the map.` +
-    `<br><span class="cruise-legend">Top-5% samples per survey month: ${legend}</span>`;
+    `${top.size} ${unit} hold top-5% values.${bySeasonText} Most in the ${decades}. Click a ${byMonth ? "month" : "season"} to show it on the map.` +
+    `<br><span class="cruise-legend">Top-5% ${highUnit()} per ${byMonth ? "survey month" : "season"}: ${legend}</span>`;
 }
 
 function goToSample(d) {
   stopPlay();
-  highSelected = { p: d.p, st: d.st };
-  state.periodPos = available.indexOf(d.p);
+  highSelected = { key: d.key, st: d.st };
+  if (d.step) state.seasonPos = seasonSteps.findIndex((x) => stepKey(x) === d.key);
+  else state.periodPos = available.indexOf(d.p);
   state.station = d.st;
   dl.line = null;
-  if (state.mode !== "month") setMode("month"); else render();
+  render();
   renderStationChart();
   const s = meta.stations[d.st];
   if (!map.getBounds().contains([s.lon, s.lat])) map.easeTo({ center: [s.lon, s.lat] });
