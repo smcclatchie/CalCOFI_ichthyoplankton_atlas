@@ -31,11 +31,10 @@ const state = {
   stage: 1,             // index into meta.stages (larva)
   sampling: 0,          // index into meta.samplings (standard)
   net: 0,               // index into meta.nets
-  mode: "cruise",       // "cruise" | "composite"
+  mode: "month",        // "month" (one survey month) | "season" (one season of one year)
   periodPos: 0,         // position within the available survey months
-  season: "all",
-  yearFrom: null,
-  yearTo: null,
+  season: "winter",
+  seasonPos: 0,         // position within seasonYears
   station: null,        // selected station index
   scaleMode: "fit",     // "fit" (this map's range) | "fixed" (same for all maps)
 };
@@ -172,19 +171,68 @@ function periodText(p) {
   return `${MONTHS[period.month - 1]} ${period.year}`;
 }
 
+// Seasons: winter = Dec-Feb, spring = Mar-May, summer = Jun-Aug, autumn =
+// Sep-Nov. December belongs to the FOLLOWING year's winter, so "Winter 1998"
+// is Dec 1997 - Feb 1998. "By season" shows one season of one year (the mean
+// of that season's survey months); there is no averaging across years, since
+// the interannual and seasonal changes are what the atlas is for.
+const SEASON_LABEL = { winter: "Winter", spring: "Spring", summer: "Summer", autumn: "Autumn" };
+const SEASON_FIRST_MONTH = { winter: 12, spring: 3, summer: 6, autumn: 9 };
+const seasonYear = (period) => period.year + (period.month === 12 ? 1 : 0);
+let seasonYears = [];          // years with a survey in state.season, for the current net and sampling
+
+function updateSeasonYears() {
+  const previous = seasonYears[state.seasonPos];
+  const set = new Set();
+  for (const p of available) {
+    const period = meta.periods[p];
+    if (period.season === state.season) set.add(seasonYear(period));
+  }
+  seasonYears = [...set].sort((a, b) => a - b);
+  if (!seasonYears.length) { state.seasonPos = 0; return; }
+  // Keep the year shown (or the nearest one) when the season, net or sampling changes.
+  const target = previous ?? seasonYears[seasonYears.length - 1];
+  state.seasonPos = seasonYears.reduce((best, yr, i) =>
+    Math.abs(yr - target) < Math.abs(seasonYears[best] - target) ? i : best, 0);
+}
+
+function seasonPeriods() {
+  const yr = seasonYears[state.seasonPos];
+  return available.filter((p) => meta.periods[p].season === state.season && seasonYear(meta.periods[p]) === yr);
+}
+
+function seasonText() {
+  const yr = seasonYears[state.seasonPos];
+  const first = SEASON_FIRST_MONTH[state.season];
+  const span = state.season === "winter"
+    ? `Dec ${yr - 1}–Feb ${yr}`
+    : `${MONTHS[first - 1].slice(0, 3)}–${MONTHS[first + 1].slice(0, 3)} ${yr}`;
+  return `${SEASON_LABEL[state.season]} ${yr} (${span})`;
+}
+
+// The stepper and slider walk survey months ("By month") or years for the
+// selected season ("By season").
+const stepList = () => (state.mode === "month" ? available : seasonYears);
+const stepPos = () => (state.mode === "month" ? state.periodPos : state.seasonPos);
+function setStepPos(pos) {
+  if (state.mode === "month") state.periodPos = pos; else state.seasonPos = pos;
+}
+// Survey months on the map now: one ("By month") or the season's ("By season").
+const shownPeriods = () => (state.mode === "month" ? (available.length ? [available[state.periodPos]] : []) : seasonPeriods());
+
 // ----------------------------------------------------------- rendering --
 
 function features() {
   const values = taxonCache.get(state.taxon.id);
   const rows = new Map();   // station -> {a, tows, n, hits}
-  if (state.mode === "cruise") {
+  if (state.mode === "month") {
     const p = available[state.periodPos];
     for (const i of occupationRows(p)) {
       const a = values.get(catchKey(p, state.sampling, state.net, state.stage, occ.st[i])) || 0;
       rows.set(occ.st[i], { a, tows: occ.t[i] });
     }
   } else {
-    for (const p of compositePeriods()) {
+    for (const p of seasonPeriods()) {
       for (const i of occupationRows(p)) {
         const a = values.get(catchKey(p, state.sampling, state.net, state.stage, occ.st[i])) || 0;
         const r = rows.get(occ.st[i]) || { sum: 0, n: 0, hits: 0 };
@@ -210,14 +258,6 @@ function features() {
   return { type: "FeatureCollection", features: out };
 }
 
-function compositePeriods() {
-  return available.filter((p) => {
-    const period = meta.periods[p];
-    return (state.season === "all" || period.season === state.season)
-      && period.year >= state.yearFrom && period.year <= state.yearTo;
-  });
-}
-
 function render() {
   if (!state.taxon || !taxonCache.has(state.taxon.id) || !mapReady) return;
   const fc = features();
@@ -226,19 +266,19 @@ function render() {
   const sampled = fc.features.length;
   const withCatch = fc.features.filter((f) => f.properties.a > 0).length;
 
-  if (state.mode === "cruise") {
+  $("period-range").max = String(Math.max(0, stepList().length - 1));
+  $("period-range").value = stepPos();
+  if (state.mode === "month") {
     const p = available[state.periodPos];
-    const period = meta.periods[p];
-    const ships = period.ships.map(titleCase).join(", ");
+    const ships = available.length ? meta.periods[p].ships.map(titleCase).join(", ") : "";
     $("period-label").textContent = available.length
       ? `${periodText(p)} · ${ships}\n${sampled} stations sampled, ${withCatch} with ${stageWord()}`
       : "No surveys with this net and sampling type.";
-    $("period-range").value = state.periodPos;
   } else {
-    const n = compositePeriods().length;
-    $("composite-label").textContent = n
-      ? `Mean of ${n} survey months · ${sampled} stations, ${withCatch} with ${stageWord()}`
-      : "No surveys match this season and year range.";
+    const months = seasonPeriods();
+    $("period-label").textContent = months.length
+      ? `${seasonText()}\nMean of ${months.map(periodText).join(", ")} · ${sampled} stations, ${withCatch} with ${stageWord()}`
+      : `No ${state.season} surveys with this net and sampling type.`;
   }
   renderMapLabel();
   renderLegend();
@@ -251,7 +291,7 @@ function render() {
 // CalCOFI line numbers, standard sampling only. Each label lies on its line's
 // own extension just beyond the offshore (western) end of the stations shown,
 // rotated to the line's angle so it reads as part of that line; the end moves
-// with each survey's (or composite's) actual coverage. HTML markers need no
+// with each map's actual coverage (one survey month or one season). HTML markers need no
 // map font files.
 const LABEL_GAP_PX = 8;
 let lineAxes = null;           // line -> {ux, uy, angle}: screen-space direction, west -> east
@@ -327,7 +367,7 @@ function renderMapLabel() {
   const net = meta.nets[state.net];
   const what = `<span class="species">${t.common ? `${t.common} <span class="sci">(${t.scientific})</span>` : `<span class="sci">${t.scientific}</span>`}</span>` +
     `${titleCase(stageWord())} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
-  if (state.mode === "cruise") {
+  if (state.mode === "month") {
     if (!available.length) { $("map-label").innerHTML = ""; return; }
     const period = meta.periods[available[state.periodPos]];
     const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
@@ -335,15 +375,17 @@ function renderMapLabel() {
       `Cruise${period.cruises.length > 1 ? "s" : ""} ${cruises}<br>${what}` +
       `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}`;
   } else {
-    const season = $("season-select").selectedOptions[0].textContent;
-    $("map-label").innerHTML = `<span class="when">${season}, ${state.yearFrom}–${state.yearTo}</span>` +
-      `Mean of ${compositePeriods().length} survey months<br>${what}` +
+    const months = seasonPeriods();
+    if (!months.length) { $("map-label").innerHTML = ""; return; }
+    const cruises = [...new Set(months.flatMap((p) => meta.periods[p].cruises.map((c) => c.key)))].join(", ");
+    $("map-label").innerHTML = `<span class="when">${seasonText()}</span>` +
+      `Mean of ${months.map(periodText).join(", ")} · cruise${cruises.includes(",") ? "s" : ""} ${cruises}<br>${what}` +
       `<span class="bar-title">Mean ${unitsLabel()}</span>${colourBar(300)}`;
   }
 }
 
 function renderLegend() {
-  $("legend-title").textContent = state.mode === "composite"
+  $("legend-title").textContent = state.mode === "season"
     ? `Mean ${unitsLabel()}`
     : `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
   $("legend-items").innerHTML = colourBar(280);
@@ -430,10 +472,16 @@ function renderStationChart() {
   for (let yr = 1950; yr <= 2020; yr += 10) {
     parts.push(`<text x="${sx(yr)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#85837c">${yr}</text>`);
   }
-  if (state.mode === "cruise" && available.length) {
+  if (state.mode === "month" && available.length) {
     const period = meta.periods[available[state.periodPos]];
     const xx = sx(period.year + (period.month - 0.5) / 12);
     parts.push(`<line x1="${xx}" x2="${xx}" y1="${m.t}" y2="${H - m.b}" stroke="#2a78d6" stroke-dasharray="3 3"/>`);
+  } else if (state.mode === "season" && seasonYears.length) {
+    // The season's three months as a band (at least 3 px wide, so it shows at any width).
+    const yr = seasonYears[state.seasonPos];
+    const start = state.season === "winter" ? yr - 1 + 11 / 12 : yr + (SEASON_FIRST_MONTH[state.season] - 1) / 12;
+    const xa = sx(start), w = Math.max(3, sx(start + 0.25) - xa);
+    parts.push(`<rect x="${xa}" y="${m.t}" width="${w}" height="${H - m.t - m.b}" fill="#2a78d6" opacity="0.18"/>`);
   }
   for (const d of series) {
     const cls = classOf(d.a);
@@ -475,7 +523,7 @@ function renderStationChart() {
     if (!best || Math.abs(sx(best.x) - px) > 12) return;
     stopPlay();
     state.periodPos = available.indexOf(best.p);
-    if (state.mode !== "cruise") setMode("cruise"); else render();
+    if (state.mode !== "month") setMode("month"); else render();
   });
 
   map.getSource("selected").setData({
@@ -588,7 +636,6 @@ async function selectTaxon(t, resetNet) {
 function onFilterChange(keepPeriod = true) {
   const previous = available[state.periodPos];
   updateAvailable();
-  $("period-range").max = String(Math.max(0, available.length - 1));
   const pos = keepPeriod ? available.indexOf(previous) : -1;
   if (pos >= 0) {
     state.periodPos = pos;
@@ -599,13 +646,7 @@ function onFilterChange(keepPeriod = true) {
   } else {
     state.periodPos = Math.min(state.periodPos, Math.max(0, available.length - 1));
   }
-  if (state.yearFrom === null) {
-    // The whole record, so the range suits every net (C1 ends 1978, CB starts 1978).
-    state.yearFrom = meta.periods[0].year;
-    state.yearTo = meta.periods[meta.periods.length - 1].year;
-  }
-  $("year-from").value = state.yearFrom;
-  $("year-to").value = state.yearTo;
+  updateSeasonYears();
   render();
 }
 
@@ -613,14 +654,17 @@ function setMode(mode) {
   stopPlay();
   state.mode = mode;
   document.querySelectorAll("#view-toggle button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
-  $("cruise-controls").hidden = mode !== "cruise";
-  $("composite-controls").hidden = mode !== "composite";
+  $("season-controls").hidden = mode !== "season";
+  $("step-title").textContent = mode === "month" ? "Survey month" : "Year";
+  $("prev-btn").setAttribute("aria-label", mode === "month" ? "Previous survey month" : "Previous year");
+  $("next-btn").setAttribute("aria-label", mode === "month" ? "Next survey month" : "Next year");
   render();
 }
 
 function step(delta) {
-  if (!available.length) return;
-  state.periodPos = (state.periodPos + delta + available.length) % available.length;
+  const n = stepList().length;
+  if (!n) return;
+  setStepPos((stepPos() + delta + n) % n);
   render();
 }
 
@@ -633,9 +677,9 @@ function stopPlay() {
 
 function togglePlay() {
   if (playTimer) { stopPlay(); return; }
-  if (state.periodPos >= available.length - 1) state.periodPos = 0;
+  if (stepPos() >= stepList().length - 1) setStepPos(0);
   playTimer = setInterval(() => {
-    if (state.periodPos >= available.length - 1) { stopPlay(); return; }
+    if (stepPos() >= stepList().length - 1) { stopPlay(); return; }
     step(1);
   }, PLAY_INTERVAL_MS);
   $("play-btn").textContent = "❚❚ Pause";
@@ -660,23 +704,18 @@ function setupControls() {
   $("prev-btn").addEventListener("click", () => { stopPlay(); step(-1); });
   $("next-btn").addEventListener("click", () => { stopPlay(); step(1); });
   $("play-btn").addEventListener("click", togglePlay);
-  $("period-range").addEventListener("input", (e) => { stopPlay(); state.periodPos = Number(e.target.value); render(); });
-  $("season-select").addEventListener("change", (e) => { state.season = e.target.value; render(); });
-  const years = () => {
-    const a = Number($("year-from").value), b = Number($("year-to").value);
-    if (Number.isFinite(a) && Number.isFinite(b)) {
-      state.yearFrom = Math.min(a, b);
-      state.yearTo = Math.max(a, b);
-      render();
-    }
-  };
-  $("year-from").addEventListener("change", years);
-  $("year-to").addEventListener("change", years);
+  $("period-range").addEventListener("input", (e) => { stopPlay(); setStepPos(Number(e.target.value)); render(); });
+  $("season-select").addEventListener("change", (e) => {
+    stopPlay();
+    state.season = e.target.value;
+    updateSeasonYears();
+    render();
+  });
   $("station-close").addEventListener("click", closeStation);
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input, select")) return;
-    if (e.key === "ArrowLeft" && state.mode === "cruise") { stopPlay(); step(-1); }
-    if (e.key === "ArrowRight" && state.mode === "cruise") { stopPlay(); step(1); }
+    if (e.key === "ArrowLeft") { stopPlay(); step(-1); }
+    if (e.key === "ArrowRight") { stopPlay(); step(1); }
   });
   setupSpeciesPicker();
   setupSpeciesSelect();
@@ -798,10 +837,11 @@ function renderHighCounts() {
   // filled in the calendar's outline blue; the clicked sample filled red. Same
   // size, drawn in that order so highlighted dots are never hidden, and the
   // hollow rings let the filled ones stand out.
-  const surveyShown = state.mode === "cruise" ? available[state.periodPos] : null;
+  const shown = new Set(shownPeriods());
+  const shownText = state.mode === "month" ? (shown.size ? periodText([...shown][0]) : "") : (shown.size ? seasonText() : "");
   const isSel = (d) => highSelected && highSelected.p === d.p && highSelected.st === d.st;
-  const inSurvey = (d) => d.p === surveyShown && !isSel(d);
-  const nInSurvey = dots.filter((d) => d.p === surveyShown).length;
+  const inSurvey = (d) => shown.has(d.p) && !isSel(d);
+  const nInSurvey = dots.filter((d) => shown.has(d.p)).length;
   for (const d of [...dots.filter((x) => !isSel(x) && !inSurvey(x)), ...dots.filter(inSurvey), ...dots.filter(isSel)]) {
     if (isSel(d) || inSurvey(d)) {
       const fill = isSel(d) ? HIGH_SELECTED_COLOR : CRUISE_SELECTED_COLOR;
@@ -847,9 +887,9 @@ function renderHighCounts() {
     `${counts.length.toLocaleString()} non-zero counts; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
     `${high.length.toLocaleString()} samples at or above it are shown as dots in the strip: click one to show its station and survey. ` +
     `Zeros (${(samples - counts.length).toLocaleString()} samples with none caught) are not part of the distribution.` +
-    (surveyShown === null ? "" : nInSurvey
-      ? ` ${periodText(surveyShown)} (outlined in the calendar): ${nInSurvey} top-5% sample${nInSurvey > 1 ? "s" : ""}, shown in blue.`
-      : ` ${periodText(surveyShown)} (outlined in the calendar) has no top-5% samples.`);
+    (!shown.size ? "" : nInSurvey
+      ? ` ${shownText} (outlined in the calendar): ${nInSurvey} top-5% sample${nInSurvey > 1 ? "s" : ""}, shown in blue.`
+      : ` ${shownText} (outlined in the calendar) has no top-5% samples.`);
   renderHighCruises(high);
 }
 
@@ -887,7 +927,7 @@ function renderHighCruises(high) {
   const cw = (W - m.l - m.r) / (y1 - y0 + 1), ch = (H - m.t - m.b) / 12;
   const cellAt = new Map();    // "year-month" -> period
   const parts = [];
-  const current = state.mode === "cruise" ? available[state.periodPos] : null;
+  const current = new Set(shownPeriods());
   let selectedRect = "";
   for (const p of available) {
     const period = meta.periods[p];
@@ -896,11 +936,11 @@ function renderHighCruises(high) {
     const n = top.get(p) || 0;
     const fill = n ? CRUISE_BINS.find((b) => n >= b.min && n <= b.max).color : SAMPLED_NO_TOP;
     parts.push(`<rect x="${x + 0.3}" y="${y + 0.3}" width="${Math.max(0.8, cw - 0.6)}" height="${ch - 0.6}" fill="${fill}"/>`);
-    if (p === current) {
+    if (current.has(p)) {
       // Bold blue (the strongest contrast with the orange cells) over a white
       // halo, so the shown survey stands out on any cell colour.
       const box = `x="${x - 1}" y="${y - 1}" width="${cw + 2}" height="${ch + 2}" fill="none"`;
-      selectedRect = `<rect ${box} stroke="#ffffff" stroke-width="4.5"/><rect ${box} stroke="${CRUISE_SELECTED_COLOR}" stroke-width="2.5"/>`;
+      selectedRect += `<rect ${box} stroke="#ffffff" stroke-width="4.5"/><rect ${box} stroke="${CRUISE_SELECTED_COLOR}" stroke-width="2.5"/>`;
     }
   }
   parts.push(selectedRect);
@@ -941,7 +981,7 @@ function renderHighCruises(high) {
     if (p === undefined) return;
     stopPlay();
     state.periodPos = available.indexOf(p);
-    if (state.mode !== "cruise") setMode("cruise"); else render();
+    if (state.mode !== "month") setMode("month"); else render();
   });
 
   // Summary: top-5% samples by season and by decade.
@@ -968,7 +1008,7 @@ function goToSample(d) {
   state.periodPos = available.indexOf(d.p);
   state.station = d.st;
   dl.line = null;
-  if (state.mode !== "cruise") setMode("cruise"); else render();
+  if (state.mode !== "month") setMode("month"); else render();
   renderStationChart();
   const s = meta.stations[d.st];
   if (!map.getBounds().contains([s.lon, s.lat])) map.easeTo({ center: [s.lon, s.lat] });
@@ -1166,10 +1206,10 @@ function writeHash() {
     net: meta.nets[state.net].code,
     view: state.mode,
   });
-  if (state.mode === "cruise" && available.length) params.set("survey", meta.periods[available[state.periodPos]].key);
-  if (state.mode === "composite") {
+  if (state.mode === "month" && available.length) params.set("survey", meta.periods[available[state.periodPos]].key);
+  if (state.mode === "season" && seasonYears.length) {
     params.set("season", state.season);
-    params.set("years", `${state.yearFrom}-${state.yearTo}`);
+    params.set("year", seasonYears[state.seasonPos]);
   }
   if (state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
@@ -1183,11 +1223,11 @@ function readHash() {
   if (params.has("stage")) state.stage = idx(meta.stages, params.get("stage"));
   if (params.has("sampling")) state.sampling = idx(meta.samplings, params.get("sampling"));
   if (params.has("net")) state.net = idx(meta.nets.map((n) => n.code), params.get("net"));
-  if (params.get("view") === "composite") state.mode = "composite";
+  if (params.get("view") === "season") state.mode = "season";
   if (params.get("scale") === "fixed") state.scaleMode = "fixed";
-  if (params.has("season")) state.season = params.get("season");
-  const years = (params.get("years") || "").split("-").map(Number);
-  if (years.length === 2 && years.every(Number.isFinite)) [state.yearFrom, state.yearTo] = years;
+  if (SEASON_LABEL[params.get("season")]) state.season = params.get("season");
+  const year = Number(params.get("year"));
+  if (params.has("year") && Number.isFinite(year)) seasonYears = [year];   // updateSeasonYears() keeps the nearest
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
   return { taxon, survey, station };
@@ -1260,10 +1300,10 @@ function createMap() {
       map.getCanvas().style.cursor = "pointer";
       const f = e.features[0].properties;
       const value = f.a > 0 ? `${fmt(f.a)} ${unitsLabel()}` : `no ${stageWord()} caught`;
-      const detail = state.mode === "cruise"
+      const detail = state.mode === "month"
         ? `${f.tows} tow${f.tows > 1 ? "s" : ""}`
         : `mean of ${f.n} survey${f.n > 1 ? "s" : ""}, ${f.hits} with ${stageWord()}`;
-      popup.setLngLat(e.lngLat).setHTML(`<strong>${stationName(f.st)}</strong><br>${state.mode === "composite" && f.a > 0 ? "mean " : ""}${value}<br><span style="color:#85837c">${detail}</span>`).addTo(map);
+      popup.setLngLat(e.lngLat).setHTML(`<strong>${stationName(f.st)}</strong><br>${state.mode === "season" && f.a > 0 ? "mean " : ""}${value}<br><span style="color:#85837c">${detail}</span>`).addTo(map);
     });
     map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
     map.on("click", layer, (e) => {

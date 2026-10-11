@@ -2,8 +2,8 @@
 
 An interactive web atlas of fish eggs and larvae from CalCOFI plankton tows,
 1951–2023: choose a species by common or scientific name, a life stage, net
-type and sampling type, then step or play through survey months, view
-seasonal and multi-year composites, and click a station for its history.
+type and sampling type, then step or play through the maps by month or by season (one season of
+one year at a time), and click a station for its history.
 
 The site is static (`docs/`) and is served by GitHub Pages. It uses
 [MapLibre GL JS](https://maplibre.org/) and a Natural Earth coastline; no map
