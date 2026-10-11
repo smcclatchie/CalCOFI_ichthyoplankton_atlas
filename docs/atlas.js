@@ -33,8 +33,8 @@ const state = {
   net: 0,               // index into meta.nets
   mode: "month",        // "month" (one survey month) | "season" (one season of one year)
   periodPos: 0,         // position within the available survey months
-  season: "winter",
-  seasonPos: 0,         // position within seasonYears
+  season: "winter",     // one season stepped by year, or "sequence": every season in turn
+  seasonPos: 0,         // position within seasonSteps
   station: null,        // selected station index
   scaleMode: "fit",     // "fit" (this map's range) | "fixed" (same for all maps)
 };
@@ -175,44 +175,53 @@ function periodText(p) {
 // Sep-Nov. December belongs to the FOLLOWING year's winter, so "Winter 1998"
 // is Dec 1997 - Feb 1998. "By season" shows one season of one year (the mean
 // of that season's survey months); there is no averaging across years, since
-// the interannual and seasonal changes are what the atlas is for.
+// the interannual and seasonal changes are what the atlas is for. It steps
+// either one season year by year, or ("sequence") through every season in
+// turn: winter, spring, summer, autumn, then the next year's winter.
+const SEASONS = ["winter", "spring", "summer", "autumn"];
 const SEASON_LABEL = { winter: "Winter", spring: "Spring", summer: "Summer", autumn: "Autumn" };
 const SEASON_FIRST_MONTH = { winter: 12, spring: 3, summer: 6, autumn: 9 };
 const seasonYear = (period) => period.year + (period.month === 12 ? 1 : 0);
-let seasonYears = [];          // years with a survey in state.season, for the current net and sampling
+// Decimal year at which a season starts (winter 1998 -> Dec 1997).
+const seasonStart = (season, year) => (season === "winter" ? year - 1 + 11 / 12 : year + (SEASON_FIRST_MONTH[season] - 1) / 12);
+const seasonMatches = (season) => state.season === "sequence" || state.season === season;
+let seasonSteps = [];          // [{season, year}] with surveys, chronological, for the current net and sampling
 
-function updateSeasonYears() {
-  const previous = seasonYears[state.seasonPos];
-  const set = new Set();
+function updateSeasonSteps() {
+  const previous = seasonSteps[state.seasonPos];
+  const keys = new Map();
   for (const p of available) {
     const period = meta.periods[p];
-    if (period.season === state.season) set.add(seasonYear(period));
+    if (!seasonMatches(period.season)) continue;
+    const step = { season: period.season, year: seasonYear(period) };
+    keys.set(`${step.year}-${SEASONS.indexOf(step.season)}`, step);
   }
-  seasonYears = [...set].sort((a, b) => a - b);
-  if (!seasonYears.length) { state.seasonPos = 0; return; }
-  // Keep the year shown (or the nearest one) when the season, net or sampling changes.
-  const target = previous ?? seasonYears[seasonYears.length - 1];
-  state.seasonPos = seasonYears.reduce((best, yr, i) =>
-    Math.abs(yr - target) < Math.abs(seasonYears[best] - target) ? i : best, 0);
+  seasonSteps = [...keys.values()].sort((a, b) => seasonStart(a.season, a.year) - seasonStart(b.season, b.year));
+  if (!seasonSteps.length) { state.seasonPos = 0; return; }
+  // Keep the time shown (or the nearest) when the season choice, net or sampling changes.
+  const last = seasonSteps[seasonSteps.length - 1];
+  const target = previous ? seasonStart(previous.season, previous.year) : seasonStart(last.season, last.year);
+  const dist = (step) => Math.abs(seasonStart(step.season, step.year) - target);
+  state.seasonPos = seasonSteps.reduce((best, step, i) => (dist(step) < dist(seasonSteps[best]) ? i : best), 0);
 }
 
-function seasonPeriods() {
-  const yr = seasonYears[state.seasonPos];
-  return available.filter((p) => meta.periods[p].season === state.season && seasonYear(meta.periods[p]) === yr);
+function seasonPeriods(step = seasonSteps[state.seasonPos]) {
+  if (!step) return [];
+  return available.filter((p) => meta.periods[p].season === step.season && seasonYear(meta.periods[p]) === step.year);
 }
 
-function seasonText() {
-  const yr = seasonYears[state.seasonPos];
-  const first = SEASON_FIRST_MONTH[state.season];
-  const span = state.season === "winter"
-    ? `Dec ${yr - 1}–Feb ${yr}`
-    : `${MONTHS[first - 1].slice(0, 3)}–${MONTHS[first + 1].slice(0, 3)} ${yr}`;
-  return `${SEASON_LABEL[state.season]} ${yr} (${span})`;
+function seasonText(step = seasonSteps[state.seasonPos]) {
+  const { season, year } = step;
+  const first = SEASON_FIRST_MONTH[season];
+  const span = season === "winter"
+    ? `Dec ${year - 1}–Feb ${year}`
+    : `${MONTHS[first - 1].slice(0, 3)}–${MONTHS[first + 1].slice(0, 3)} ${year}`;
+  return `${SEASON_LABEL[season]} ${year} (${span})`;
 }
 
 // The stepper and slider walk survey months ("By month") or years for the
-// selected season ("By season").
-const stepList = () => (state.mode === "month" ? available : seasonYears);
+// selected season, or every season in turn ("By season").
+const stepList = () => (state.mode === "month" ? available : seasonSteps);
 const stepPos = () => (state.mode === "month" ? state.periodPos : state.seasonPos);
 function setStepPos(pos) {
   if (state.mode === "month") state.periodPos = pos; else state.seasonPos = pos;
@@ -278,7 +287,7 @@ function render() {
     const months = seasonPeriods();
     $("period-label").textContent = months.length
       ? `${seasonText()}\nMean of ${months.map(periodText).join(", ")} · ${sampled} stations, ${withCatch} with ${stageWord()}`
-      : `No ${state.season} surveys with this net and sampling type.`;
+      : `No ${state.season === "sequence" ? "" : `${state.season} `}surveys with this net and sampling type.`;
   }
   renderMapLabel();
   renderLegend();
@@ -424,9 +433,30 @@ function colourBar(width) {
 
 // ------------------------------------------------------- station chart --
 
+// "By month": every survey month at the station. "By season": one point per
+// season year (the mean of its survey months, as on the map), for the selected
+// season, or for every season when stepping in sequence.
 function stationSeries(st) {
   const values = taxonCache.get(state.taxon.id);
   const series = [];
+  if (state.mode === "season") {
+    const bySeason = new Map();
+    for (const p of available) {
+      const period = meta.periods[p];
+      if (!seasonMatches(period.season)) continue;
+      const row = occupationRows(p).find((i) => occ.st[i] === st);
+      if (row === undefined) continue;
+      const year = seasonYear(period);
+      const key = `${year}-${period.season}`;
+      const d = bySeason.get(key) || { step: { season: period.season, year }, x: seasonStart(period.season, year) + 1.5 / 12, sum: 0, n: 0, tows: 0 };
+      d.sum += values.get(catchKey(p, state.sampling, state.net, state.stage, st)) || 0;
+      d.n += 1;
+      d.tows += occ.t[row];
+      bySeason.set(key, d);
+    }
+    for (const d of bySeason.values()) series.push({ ...d, a: d.sum / d.n });
+    return series.sort((a, b) => a.x - b.x);
+  }
   for (const p of available) {
     const row = occupationRows(p).find((i) => occ.st[i] === st);
     if (row === undefined) continue;
@@ -448,7 +478,9 @@ function renderStationChart() {
   document.querySelector(".map-area").classList.add("station-open");
   $("station-title").textContent =
     `${stationName(st)} — ${speciesName(state.taxon)}, ${stageWord()} ${meta.nets[state.net].units}, ` +
-    `${meta.nets[state.net].code} net, ${meta.samplings[state.sampling]} sampling (${series.length} surveys)`;
+    `${meta.nets[state.net].code} net, ${meta.samplings[state.sampling]} sampling (` +
+    (state.mode === "month" ? `${series.length} survey months)`
+      : `${state.season === "sequence" ? "all seasons" : SEASON_LABEL[state.season].toLowerCase()}, ${series.length} seasons)`);
 
   const box = $("station-chart");
   const W = box.clientWidth || 600;
@@ -476,10 +508,10 @@ function renderStationChart() {
     const period = meta.periods[available[state.periodPos]];
     const xx = sx(period.year + (period.month - 0.5) / 12);
     parts.push(`<line x1="${xx}" x2="${xx}" y1="${m.t}" y2="${H - m.b}" stroke="#2a78d6" stroke-dasharray="3 3"/>`);
-  } else if (state.mode === "season" && seasonYears.length) {
+  } else if (state.mode === "season" && seasonSteps.length) {
     // The season's three months as a band (at least 3 px wide, so it shows at any width).
-    const yr = seasonYears[state.seasonPos];
-    const start = state.season === "winter" ? yr - 1 + 11 / 12 : yr + (SEASON_FIRST_MONTH[state.season] - 1) / 12;
+    const { season, year } = seasonSteps[state.seasonPos];
+    const start = seasonStart(season, year);
     const xa = sx(start), w = Math.max(3, sx(start + 0.25) - xa);
     parts.push(`<rect x="${xa}" y="${m.t}" width="${w}" height="${H - m.t - m.b}" fill="#2a78d6" opacity="0.18"/>`);
   }
@@ -505,13 +537,17 @@ function renderStationChart() {
     }
     if (!best || Math.abs(sx(best.x) - px) > 12) { tip.hidden = true; return; }
     tip.hidden = false;
-    tip.textContent = `${periodText(best.p)}: ${best.a > 0 ? fmt(best.a) : "none"} ${unitsLabel()} (${best.tows} tow${best.tows > 1 ? "s" : ""})`;
+    const value = best.a > 0 ? `${best.step ? "mean " : ""}${fmt(best.a)} ${unitsLabel()}` : `no ${stageWord()} caught`;
+    const tows = `${best.tows} tow${best.tows > 1 ? "s" : ""}`;
+    tip.textContent = best.step
+      ? `${seasonText(best.step)}: ${value} (${best.n} survey month${best.n > 1 ? "s" : ""}, ${tows})`
+      : `${periodText(best.p)}: ${value} (${tows})`;
     const left = (sx(best.x) / W) * rect.width;
     tip.style.left = `${Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, left - tip.offsetWidth / 2))}px`;
     tip.style.top = `${(sy(y(best.a)) / H) * rect.height - 30}px`;
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
-  // Clicking a point shows that survey on the map.
+  // Clicking a point shows that survey month (or season) on the map.
   svg.style.cursor = "pointer";
   svg.addEventListener("click", (event) => {
     const rect = svg.getBoundingClientRect();
@@ -522,6 +558,11 @@ function renderStationChart() {
     }
     if (!best || Math.abs(sx(best.x) - px) > 12) return;
     stopPlay();
+    if (best.step) {
+      state.seasonPos = seasonSteps.findIndex((s) => s.season === best.step.season && s.year === best.step.year);
+      render();
+      return;
+    }
     state.periodPos = available.indexOf(best.p);
     if (state.mode !== "month") setMode("month"); else render();
   });
@@ -646,7 +687,7 @@ function onFilterChange(keepPeriod = true) {
   } else {
     state.periodPos = Math.min(state.periodPos, Math.max(0, available.length - 1));
   }
-  updateSeasonYears();
+  updateSeasonSteps();
   render();
 }
 
@@ -655,10 +696,15 @@ function setMode(mode) {
   state.mode = mode;
   document.querySelectorAll("#view-toggle button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
   $("season-controls").hidden = mode !== "season";
-  $("step-title").textContent = mode === "month" ? "Survey month" : "Year";
-  $("prev-btn").setAttribute("aria-label", mode === "month" ? "Previous survey month" : "Previous year");
-  $("next-btn").setAttribute("aria-label", mode === "month" ? "Next survey month" : "Next year");
+  updateStepTitle();
   render();
+}
+
+function updateStepTitle() {
+  const unit = state.mode === "month" ? "survey month" : state.season === "sequence" ? "season" : "year";
+  $("step-title").textContent = unit[0].toUpperCase() + unit.slice(1);
+  $("prev-btn").setAttribute("aria-label", `Previous ${unit}`);
+  $("next-btn").setAttribute("aria-label", `Next ${unit}`);
 }
 
 function step(delta) {
@@ -708,7 +754,8 @@ function setupControls() {
   $("season-select").addEventListener("change", (e) => {
     stopPlay();
     state.season = e.target.value;
-    updateSeasonYears();
+    updateSeasonSteps();
+    updateStepTitle();
     render();
   });
   $("station-close").addEventListener("click", closeStation);
@@ -1207,9 +1254,11 @@ function writeHash() {
     view: state.mode,
   });
   if (state.mode === "month" && available.length) params.set("survey", meta.periods[available[state.periodPos]].key);
-  if (state.mode === "season" && seasonYears.length) {
+  if (state.mode === "season" && seasonSteps.length) {
+    const { season, year } = seasonSteps[state.seasonPos];
     params.set("season", state.season);
-    params.set("year", seasonYears[state.seasonPos]);
+    if (state.season === "sequence") params.set("shown", season);
+    params.set("year", year);
   }
   if (state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
@@ -1225,9 +1274,13 @@ function readHash() {
   if (params.has("net")) state.net = idx(meta.nets.map((n) => n.code), params.get("net"));
   if (params.get("view") === "season") state.mode = "season";
   if (params.get("scale") === "fixed") state.scaleMode = "fixed";
-  if (SEASON_LABEL[params.get("season")]) state.season = params.get("season");
+  if (SEASON_LABEL[params.get("season")] || params.get("season") === "sequence") state.season = params.get("season");
   const year = Number(params.get("year"));
-  if (params.has("year") && Number.isFinite(year)) seasonYears = [year];   // updateSeasonYears() keeps the nearest
+  if (params.has("year") && Number.isFinite(year)) {
+    // updateSeasonSteps() then keeps the nearest season with surveys.
+    const shown = state.season === "sequence" ? params.get("shown") : state.season;
+    seasonSteps = [{ season: SEASON_LABEL[shown] ? shown : "winter", year }];
+  }
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
   return { taxon, survey, station };
