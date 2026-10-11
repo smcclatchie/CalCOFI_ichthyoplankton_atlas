@@ -1497,10 +1497,10 @@ function symbolStyle(overHydro) {
 // ---------------------------------------------------------------- logo --
 //
 // The CalCOFI logo is a brand label kept on land, as on the Fishing Maps:
-// the first place (right edge first) whose whole logo box is land and clear
-// of the map's panels, re-checked after every move or layout change. Hidden
-// when no such place is in view.
-const LOGO_PX = 72, LOGO_MARGIN = 14;
+// the first place (beside the map label first) whose whole logo box is land and clear
+// of the map's panels, re-checked after every move or layout change. With no
+// land big enough in view it stays beside the map label.
+const LOGO_PX = 144, LOGO_MARGIN = 14;
 let logoFrame = 0;
 
 function placeLogo() {
@@ -1527,9 +1527,11 @@ function placeLogo() {
       for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) if (!onLand(x + (i / 4) * LOGO_PX, y + (j / 4) * LOGO_PX)) return false;
       return true;
     };
-    // Candidates: down the right edge, then the left edge, then a scan of the
-    // whole map (right to left), so the label sits at the map's edge when it can.
+    // Candidates: beside the map label (to its left, top-aligned), then down
+    // the right edge, the left edge, and a scan of the whole map (right to left).
     const STEP = 24, candidates = [];
+    const label = $("map-label").getBoundingClientRect();
+    if (label.width > 0) candidates.push([label.left - area.left - 10 - LOGO_PX, label.top - area.top]);
     for (let y = LOGO_MARGIN; y <= bottom - LOGO_PX; y += STEP) candidates.push([W - 56 - LOGO_PX, y], [W - LOGO_MARGIN - LOGO_PX, y]);
     for (let y = LOGO_MARGIN; y <= bottom - LOGO_PX; y += STEP) candidates.push([LOGO_MARGIN, y]);
     for (let x = W - LOGO_MARGIN - LOGO_PX - 40; x > LOGO_MARGIN; x -= 40) {
@@ -1539,6 +1541,13 @@ function placeLogo() {
       if (!clear(x, y) || !onLand(x + LOGO_PX / 2, y + LOGO_PX / 2) || !allLand(x, y)) continue;
       logo.style.left = `${x}px`;
       logo.style.top = `${y}px`;
+      logo.hidden = false;
+      return;
+    }
+    // No land big enough in view: keep the brand label beside the map label anyway.
+    if (label.width > 0 && clear(...candidates[0])) {
+      logo.style.left = `${candidates[0][0]}px`;
+      logo.style.top = `${candidates[0][1]}px`;
       logo.hidden = false;
       return;
     }
