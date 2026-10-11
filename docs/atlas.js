@@ -15,12 +15,13 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
   "August", "September", "October", "November", "December"];
 
 // Reverse viridis on log10 abundance: pale yellow (low) to dark purple (high),
-// perceptually uniform and colour-vision-deficiency safe. Colour and size both
-// rise with abundance; a thin dark outline keeps the pale low classes visible
-// against the light sea. Zero catches are small and neutral grey.
+// perceptually uniform and colour-vision-deficiency safe. Every catch symbol is
+// the same size (colour alone carries abundance); a thin dark outline keeps the
+// pale low classes visible against the light sea, and over the hydrography each
+// symbol sits on a white disc (see symbolStyle). Zero catches are small and grey.
 // Ten classes; boundaries come from the colour-scale template (see SCALE_TEMPLATES).
 const CLASSES = ["#fde725", "#b5de2b", "#6ece58", "#35b779", "#1f9e89", "#26828e", "#31688e", "#3e4a89", "#482878", "#440154"]
-  .map((color, i) => ({ color, radius: 3 + i * 0.5 }));
+  .map((color) => ({ color, radius: 5 }));
 const ZERO = { color: "#a9a7a0", radius: 2.2 };
 const OUTLINE = "rgba(31, 30, 28, 0.55)";
 const DEFAULT_NET = "CB";      // CalCOFI bongo, the standard net since 1978
@@ -297,6 +298,7 @@ function render() {
   if (state.layer === "hydro") { renderHydro(); return; }
   if (!state.taxon || !taxonCache.has(state.taxon.id) || !mapReady) return;
   setHydroVisible(false);
+  symbolStyle(false);
   for (const id of ["zero", "catch", "selected"]) map.setLayoutProperty(id, "visibility", "visible");
   const fc = features();
   map.getSource("stations").setData(fc);
@@ -1446,6 +1448,16 @@ function readHash() {
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
   return { taxon, survey, station };
+}
+
+// Symbol outlines: thin and dark on the light sea; a white disc over the
+// hydrography's colours, so the abundance colours stand out on any palette.
+function symbolStyle(overHydro) {
+  map.setPaintProperty("catch", "circle-stroke-color", overHydro ? "#ffffff" : OUTLINE);
+  map.setPaintProperty("catch", "circle-stroke-width", overHydro ? 2.5 : 0.6);
+  map.setPaintProperty("zero", "circle-stroke-color", "#ffffff");
+  map.setPaintProperty("zero", "circle-stroke-width", overHydro ? 1.5 : 0);
+  map.setPaintProperty("zero", "circle-opacity", overHydro ? 1 : 0.8);
 }
 
 // ----------------------------------------------------------------- map --

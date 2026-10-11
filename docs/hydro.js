@@ -626,6 +626,7 @@ async function renderHydro() {
   const fc = showFish ? features(fishPeriods, state.mode) : empty;
   map.getSource("stations").setData(fc);
   for (const id of ["zero", "catch"]) map.setLayoutProperty(id, "visibility", showFish ? "visible" : "none");
+  symbolStyle(true);
   map.getSource("selected").setData(empty);
 
   // Stepper, labels, legend.
