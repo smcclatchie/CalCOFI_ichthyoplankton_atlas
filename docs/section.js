@@ -384,6 +384,15 @@ async function renderSection() {
   drawSection();
 }
 
+// The depth (m) or depth interval [top, bottom] the map shows, for the
+// section's highlight: none for per-cast variables or isopycnal surfaces.
+function mapDepth() {
+  const v = hVar();
+  if (v.perCast || isIso()) return null;
+  const d = hEffDepth(), depths = hSrc().depths;
+  return v.interval ? [d, depths[depths.indexOf(d) + 1]] : [d, d];
+}
+
 function showSectionMessage(text) {
   $("section-chart").innerHTML = `<p class="hint" style="padding:12px">${text}</p>`;
 }
@@ -396,7 +405,7 @@ function drawSection() {
   const { v, geo, scale, grid, labels } = sCur;
   const box = $("section-chart");
   const W = box.clientWidth || 600, H = Math.max(140, (box.clientHeight || 260) - 30);   // less the note lines
-  const m = { l: 46, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
+  const m = { l: 60, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
   // the map's horizontal scale along the line (screen x against distance along
   // it, fitted over the stations), not its position: the section is as wide as
   // the line is across the map, coast at the plot's right edge, offshore end
@@ -432,13 +441,27 @@ function drawSection() {
       `stroke="${scale.line === "#ffffff" ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.85)"}" stroke-width="2.4" paint-order="stroke">${l.t}</text>`);
   }
   parts.push("</g>");
-  // axes: depth (left)
+  // axes: depth (left), with the map's depth (or depth interval) highlighted
   const tick = 'font-size="11" fill="#5b5a55"';
+  const md = mapDepth(), mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
   for (let z = 0; z <= SECTION_DEPTH; z += 100) {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
+    if (mark && py(z) > mark.y0 - 6 && py(z) < mark.y1 + 6) continue;      // under the highlight
     parts.push(`<text x="${m.l - 6}" y="${py(z) + 4}" text-anchor="end" ${tick} ${font}>${z}</text>`);
   }
-  parts.push(`<text transform="translate(${m.l - 34} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${tick} ${font}>depth (m)</text>`);
+  if (mark) {
+    const yc = (mark.y0 + mark.y1) / 2;
+    for (const y of md[0] === md[1] ? [py(md[0])] : [py(md[0]), py(md[1])]) {      // a dashed line on a white halo
+      parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="#ffffff" stroke-width="2.6" opacity="0.6"/>`);
+      parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="#1f1e1c" stroke-width="1" stroke-dasharray="5 3"/>`);
+    }
+    // the depth in a blue box on the axis; an interval's two depths stacked
+    const lines = md[0] === md[1] ? [String(md[0])] : [String(md[0]), String(md[1])];
+    const bw = 6 * Math.max(...lines.map((t) => t.length)) + 8, bh = Math.max(16, 13 * lines.length + 3, mark.y1 - mark.y0);
+    parts.push(`<rect x="${m.l - 4 - bw}" y="${yc - bh / 2}" width="${bw}" height="${bh}" rx="3" fill="#2a78d6"/>`);
+    lines.forEach((t, k) => parts.push(`<text x="${m.l - 8}" y="${yc - bh / 2 + 12 + k * (bh - 16)}" text-anchor="end" font-size="10" font-weight="600" fill="#ffffff" ${font}>${t}</text>`));
+  }
+  parts.push(`<text transform="translate(${m.l - 48} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${tick} ${font}>depth (m)</text>`);
   // distance (bottom)
   const step = Math.abs(b) * 100 < 40 ? 200 : 100;
   for (let km = 0; km <= geo.xmax; km += step) {
