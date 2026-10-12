@@ -63,6 +63,32 @@ const HYDRO_STYLES = {
     stops: ["#c9d4bf", "#aec7aa", "#91ba98", "#71ae8b", "#4ea183", "#29937f", "#13837b", "#137275", "#19616c", "#1c5062", "#1c4058", "#192f4d", "#151d44"],
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
+  // Derived variables. Depths run light (shallow) to dark (deep); the mixed
+  // layer depth uses the Fishing Maps MLD palette (cmocean dense).
+  spiciness: {     // cmocean thermal, 0-0.92
+    stops: ["#042333", "#0a2f5b", "#25348f", "#4d379f", "#6a4595", "#85518e", "#a05a87", "#be637b", "#db6e68", "#f07f50", "#fb993f", "#fbb73d", "#f5d849"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  n2: {            // cmocean amp, 0.12-1
+    stops: ["#e3c9c2", "#dcb4a6", "#d69e8b", "#cf8870", "#c97457", "#c15d3f", "#b9452c", "#ad2c24", "#9c1827", "#850e29", "#6c0f26", "#530d1d", "#3c0912"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#2e8b57",
+  },
+  z_sigma25: {     // cmocean deep, 0.1-1
+    stops: ["#caebb2", "#a1dda6", "#78cea3", "#5fbca4", "#52a8a3", "#4a959f", "#44829b", "#3f6e97", "#3e5a92", "#414684", "#3e3666", "#342847", "#281a2c"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  nitricline_depth: {   // cmocean matter, 0.12-1
+    stops: ["#f9c38a", "#f6a975", "#f18f63", "#ea7657", "#e05e53", "#d24755", "#bf365b", "#a92861", "#921f63", "#791a61", "#5f185a", "#46144d", "#2f0f3e"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#2e8b57",
+  },
+  chl_max_depth: { // cmocean algae, 0.12-1
+    stops: ["#b1dea5", "#99cf8c", "#7ec175", "#61b361", "#3da654", "#189750", "#07864d", "#0e7548", "#156540", "#195437", "#1a442c", "#173420", "#122414"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  mld: {           // Fishing Maps MLD: cmocean dense
+    stops: ["#e6f1f1", "#c2dfe6", "#a2cee2", "#86b9e3", "#76a4e5", "#748be2", "#7871d5", "#7959c0", "#7642a5", "#6e2d84", "#621d62", "#4f1440", "#360e24"],
+    smooth: true, line: "#ffffff", lineWidth: 1.1, land: "#2e8b57",
+  },
 };
 // Anomalies: balanced (diverging) palettes, neutral at zero, each built from
 // its variable's own palette above (user, 2026-10-12): temperature from the
@@ -77,6 +103,14 @@ const ANOMALY_STYLES = {
   oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
   nitrate: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
   silicate: ["#5f185a", "#921f63", "#bf365b", "#e05e53", "#f18f63", "#f6c9a0", "#f3f1ec", "#c9d4bf", "#91ba98", "#4ea183", "#13837b", "#19616c", "#151d44"],
+  // Derived: the positive side from the variable's own palette (deeper, more
+  // stratified, spicier), the negative side a contrasting ramp.
+  spiciness: ["#042333", "#0a2f5b", "#25348f", "#4d70b0", "#8ea7cf", "#c8d3e6", "#f2f1ee", "#f7d9a8", "#fbc06a", "#fb993f", "#f07f50", "#db6e68", "#be637b"],
+  n2: ["#155a6b", "#2b7a87", "#4f9ba5", "#7ebcc3", "#aed6da", "#d8ebec", "#f3f1ee", "#e3c9c2", "#d69e8b", "#c97457", "#b9452c", "#9c1827", "#6c0f26"],
+  z_sigma25: ["#9a5b16", "#b8771f", "#d29539", "#e5b66a", "#f0d49f", "#f6e8cf", "#f2f2ef", "#c4e2c8", "#78cea3", "#4a959f", "#3f6e97", "#414684", "#281a2c"],
+  nitricline_depth: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
+  chl_max_depth: ["#7a3d8f", "#9558a8", "#b07cc0", "#c9a2d5", "#dfc6e6", "#efe3f2", "#f2f2ef", "#cfe8c8", "#99cf8c", "#3da654", "#07864d", "#195437", "#122414"],
+  mld: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
 };
 const ANOMALY_LINE = "#1f1e1c";
 const ANOMALY_MIN_YEARS = 20;           // a station's climatology needs at least this many years (user, 2026-10-12)
@@ -100,6 +134,8 @@ const hstate = {
   seasonPos: 0,          // position within hSteps
   stationKey: null,      // selected station "line station" (shared with the ichthyoplankton view)
   anomaly: false,        // the Anomalies view: departures from each station's climatology
+  derived: false,        // the Derived variables view
+  viewVars: { hydro: "temperature", derived: "z_sigma25", anomaly: "temperature" },   // each view's last variable
 };
 let hmeta = null;
 const hcache = new Map();      // "source/depth" -> data
@@ -113,17 +149,39 @@ let hLineAxesCache = new Map(); // source -> CalCOFI line axes from its stations
 let hLoadToken = 0;
 
 const hSrc = () => hmeta.sources[hstate.source];
+// The view within the hydrography machinery: "hydro" (at a depth), "derived"
+// (derived variables) or "anomaly" (departures from climatology, of either).
+const hView = () => (hstate.anomaly ? "anomaly" : hstate.derived ? "derived" : "hydro");
+const viewAllows = (key, view = hView()) => {
+  const v = hmeta.variables[key];
+  return view === "anomaly" || (view === "derived") === (v.group === "derived");
+};
+// The depth used: per-cast derived variables have no depth ("cast" file); N2
+// is per interval, so the deepest standard depth falls back to the last interval.
+function hEffDepth() {
+  const v = hVar(), depths = hSrc().depths;
+  if (v.interval && hstate.depth === depths[depths.length - 1]) return depths[depths.length - 2];
+  return hstate.depth;
+}
+const hKey = () => `${hstate.source}/${hVar().perCast ? "cast" : hEffDepth()}`;
+function hDepthText(prefix) {
+  const v = hVar();
+  if (v.perCast) return "";
+  const d = hEffDepth(), depths = hSrc().depths;
+  return v.interval ? `${prefix}${d}–${depths[depths.indexOf(d) + 1]} m` : `${prefix}${d} m`;
+}
 const hStyle = () => (hstate.anomaly
   ? { ...HYDRO_STYLES[hstate.variable], stops: ANOMALY_STYLES[hstate.variable], smooth: true, line: ANOMALY_LINE, lineWidth: 0.8 }
   : HYDRO_STYLES[hstate.variable]);
 const hLabel = () => `${hVar().label}${hstate.anomaly ? " anomaly" : ""}`;
 const invMercatorY = (y) => (Math.atan(Math.exp((y * Math.PI) / 180)) * 360) / Math.PI - 90;
 const hVar = () => hmeta.variables[hstate.variable];
-const hData = () => hcache.get(`${hstate.source}/${hstate.depth}`);
+const hData = () => hcache.get(hKey());
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
 const hSourceWord = () => (hstate.source === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units ? ` ${hVar().units}` : "");
-const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1 }[hstate.variable] ?? 3);
+const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2,
+  z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable] ?? 3);
 
 async function loadHydroMeta() {
   if (!hmeta) hmeta = await getJSON("hydro/meta.json");
@@ -131,9 +189,12 @@ async function loadHydroMeta() {
 }
 
 async function loadHydroDepth() {
-  const key = `${hstate.source}/${hstate.depth}`;
+  const key = hKey();
   if (!hcache.has(key)) {
     const d = await getJSON(`hydro/${key}.json`);
+    // Variables a file lacks (e.g. CalCOFI's CTD-only depths in the bottle
+    // file) read as no data.
+    for (const v of Object.values(hmeta.variables)) if (!(v.column in d)) d[v.column] = new Array(d.p.length).fill(null);
     d.byPeriod = new Map();
     for (let i = 0; i < d.p.length; i++) {
       if (!d.byPeriod.has(d.p[i])) d.byPeriod.set(d.p[i], []);
@@ -146,16 +207,26 @@ async function loadHydroDepth() {
 
 // ------------------------------------------------------------- time steps --
 
+let hLastTime = null;          // the last time shown, kept through a map with no data
 function hTime() {
   // Decimal year of what the hydrography map shows, to keep the time when
-  // the source, depth, variable or view changes.
+  // the source, depth, variable or view changes. A map with no data (e.g. a
+  // CTD-only variable with the bottle source) keeps the last time shown.
+  let t = null;
   if (state.mode === "month") {
     const p = hSrc().periods[hAvailable[hstate.periodPos]];
-    return p ? p.year + (p.month - 0.5) / 12 : null;
+    t = p ? p.year + (p.month - 0.5) / 12 : null;
+  } else {
+    const s = hSteps[hstate.seasonPos];
+    t = s ? seasonStart(s.season, s.year) + 1.5 / 12 : null;
   }
-  const s = hSteps[hstate.seasonPos];
-  return s ? seasonStart(s.season, s.year) + 1.5 / 12 : null;
+  if (t !== null) hLastTime = t;
+  return t ?? hLastTime;
 }
+// "Mixed layer depth (m)" for per-cast depths; "Temperature °C, 50 m" otherwise.
+const hTitle = () => (hVar().perCast ? `${hLabel()} (${hVar().units})` : `${hLabel()}${hUnits()}${hDepthText(", ")}`);
+// Lower-case the first letter in running text, but not an abbreviation (N², CTD).
+const lowerFirst = (t) => (/^[A-Z][a-z]/.test(t) ? t[0].toLowerCase() + t.slice(1) : t);
 
 function updateHydroSteps(target = hTime()) {
   const d = hData();
@@ -253,7 +324,7 @@ const climSlot = (x) => (state.mode === "month" ? x.month : SEASON_OF_MONTH[x.mo
 const climYear = (x) => (state.mode === "month" ? x.year : x.year + (x.month === 12 ? 1 : 0));
 
 function climatology() {
-  const key = `${hstate.source}/${hstate.depth}/${hstate.variable}/${state.mode}`;
+  const key = `${hKey()}/${hstate.variable}/${state.mode}`;
   if (hClimCache.has(key)) return hClimCache.get(key);
   const d = hData(), col = hVar().column, periods = hSrc().periods;
   const years = new Map();     // "st|slot" -> year -> {sum, n}
@@ -636,14 +707,14 @@ function addHydroLayers() {
     if (hits.length) return;   // a station's own popup
     const v = hField ? fieldAt(hField, e.lngLat.lng, e.lngLat.lat) : null;
     if (v === null) { popup.remove(); return; }
-    popup.setLngLat(e.lngLat).setHTML(`${hSigned(v)}${hUnits()}<br><span style="color:#85837c">mapped ${hLabel().toLowerCase()}, ${hstate.depth} m</span>`).addTo(map);
+    popup.setLngLat(e.lngLat).setHTML(`${hSigned(v)}${hUnits()}<br><span style="color:#85837c">mapped ${lowerFirst(hLabel())}${hDepthText(", ")}</span>`).addTo(map);
   });
   map.on("mousemove", "hydro-stations", (e) => {
     map.getCanvas().style.cursor = "pointer";
     const f = e.features[0].properties;
     const s = hSrc().stations[f.st];
     popup.setLngLat(e.lngLat).setHTML(`<strong>Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)}</strong><br>` +
-      `${hSigned(f.v)}${hUnits()} at ${hstate.depth} m<br>` +
+      `${hSigned(f.v)}${hUnits()}${hDepthText(" at ")}<br>` +
       `<span style="color:#85837c">${f.months > 1 ? `mean of ${f.months} survey months, ` : ""}${f.casts} cast${f.casts > 1 ? "s" : ""}</span>`).addTo(map);
   });
   map.on("mouseleave", "hydro-stations", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
@@ -670,10 +741,10 @@ function setHydroVisible(on) {
 async function renderHydro() {
   if (!mapReady) return;
   const token = ++hLoadToken;
-  if (!hmeta || !hcache.has(`${hstate.source}/${hstate.depth}`)) {
+  if (!hmeta || !hcache.has(hKey())) {
     $("status").textContent = "Loading hydrography…";
     await loadHydroMeta();
-    const before = hcache.has(`${hstate.source}/${hstate.depth}`);
+    const before = hcache.has(hKey());
     await loadHydroDepth();
     $("status").textContent = "";
     if (token !== hLoadToken) return;
@@ -735,7 +806,9 @@ async function renderHydro() {
   const casts = points.reduce((a, q) => a + q.casts, 0);
   $("period-label").textContent = periods.length
     ? `${when}\n${state.mode === "season" ? `${periods.length > 1 ? "Survey months" : "Survey month"} ${periods.map(hPeriodText).join(", ")} · ` : ""}${points.length} stations, ${casts} casts`
-    : `No ${hSourceWord()} data for this ${state.mode === "season" && state.season !== "sequence" ? "season" : "selection"}.`;
+    : hVar().sources && !hVar().sources.includes(hstate.source)
+      ? `${hVar().label} comes from CTD casts only (CalCOFI's values): choose the CTD source.`
+      : `No ${hSourceWord()} data for this ${state.mode === "season" && state.season !== "sequence" ? "season" : "selection"}.`;
   renderHydroMapLabel(when, periods, showFish, fishPeriods, fc);
   renderHydroLegend();
   if (showFish) renderLegend();
@@ -766,7 +839,7 @@ const signedTick = (v) => {
 };
 
 function hydroWhat() {
-  return `${hSrc().label} · ${hLabel()} at ${hstate.depth} m`;
+  return `${hSrc().label} · ${hLabel()}${hDepthText(" at ")}`;
 }
 
 function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
@@ -783,7 +856,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
       : `<span class="bar-title">${name}: no ${meta.nets[state.net].code}-net tows in this ${state.mode === "season" ? "season" : "month"}</span>`;
   }
   $("map-label").innerHTML = `<span class="when">${when}</span>${hydroWhat()}<br>Cruise${cruises.length > 1 ? "s" : ""} ${cruiseText}` +
-    `<span class="bar-title">${hLabel()}${hUnits()}, ${hstate.depth} m</span>${hydroColourBar(300)}${anomalyNote()}${fish}`;
+    `<span class="bar-title">${hTitle()}</span>${hydroColourBar(300)}${anomalyNote()}${fish}`;
 }
 
 function hydroColourBar(width) {
@@ -822,7 +895,7 @@ function hydroColourBar(width) {
 }
 
 function renderHydroLegend() {
-  $("hydro-legend-title").textContent = `${hLabel()}${hUnits()}, ${hstate.depth} m`;
+  $("hydro-legend-title").textContent = hTitle();
   $("hydro-legend-bar").innerHTML = hydroColourBar(280);
   setToggle("hydro-scale-toggle", hstate.scale);
   renderCompareControls();
@@ -909,7 +982,7 @@ function renderHydroChart() {
     return;
   }
   const series = hydroSeries(st);
-  $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — ${hSrc().label} ${hLabel().toLowerCase()}${hUnits()} at ${hstate.depth} m (` +
+  $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — ${hSrc().label} ${lowerFirst(hVar().perCast ? `${hLabel()}, ${hVar().units}` : hTitle())} (` +
     (state.mode === "month" ? `${series.length} survey months)` : `${state.season === "sequence" ? "all seasons" : state.season}, ${series.length} seasons)`);
   const box = $("station-chart");
   const W = box.clientWidth || 600, H = box.clientHeight || 180;
@@ -998,9 +1071,11 @@ function setupHydroControls() {
     render();
   }));
   $("hydro-variable").addEventListener("change", (e) => {
-    const t = hTime();
+    hydroPendingTime = hTime();
     hstate.variable = e.target.value;
-    if (hData()) updateHydroSteps(t);
+    hstate.viewVars[hView()] = hstate.variable;
+    fillHydroDepths();
+    if (hData()) { updateHydroSteps(hydroPendingTime); hydroPendingTime = null; }
     render();
   });
   $("hydro-depth").addEventListener("change", (e) => {
@@ -1025,9 +1100,7 @@ function setupHydroControls() {
   };
   $("hydro-compare-from").addEventListener("change", compare);
   $("hydro-compare-to").addEventListener("change", compare);
-  fillSelect($("hydro-variable"), Object.values(hmeta.variables).map((v) => v.label), 0);
-  [...$("hydro-variable").options].forEach((o, i) => { o.value = Object.keys(hmeta.variables)[i]; });
-  $("hydro-variable").value = hstate.variable;
+  fillHydroVariables();
   fillSelect($("hydro-smoothing"), SMOOTHING_KM.map((k) => `${k} km${k === 75 ? " (default)" : ""}`), 0);
   [...$("hydro-smoothing").options].forEach((o, i) => { o.value = SMOOTHING_KM[i]; });
   $("hydro-smoothing").value = hstate.smoothing;
@@ -1036,12 +1109,39 @@ function setupHydroControls() {
   fillHydroDepths();
 }
 
+// The variable menu for the view: hydrography at a depth, derived variables,
+// or (Anomalies) both, grouped. Each view keeps its own last choice.
+function fillHydroVariables() {
+  const keys = Object.keys(hmeta.variables);
+  const option = (k) => `<option value="${k}">${hmeta.variables[k].label}${hmeta.variables[k].sources ? " (CTD)" : ""}</option>`;
+  const base = keys.filter((k) => hmeta.variables[k].group !== "derived"), derived = keys.filter((k) => hmeta.variables[k].group === "derived");
+  $("hydro-variable").innerHTML = hView() === "anomaly"
+    ? `<optgroup label="At a depth">${base.map(option).join("")}</optgroup><optgroup label="Derived">${derived.map(option).join("")}</optgroup>`
+    : (hView() === "derived" ? derived : base).map(option).join("");
+  $("hydro-variable").value = hstate.variable;
+}
+
+// Switch the view, keeping the variable if the new view offers it, else the
+// view's last choice; nothing else changes.
+function setHydroView(view) {
+  hstate.viewVars[hView()] = hstate.variable;
+  const t = hmeta && hData() ? hTime() : null;
+  hstate.anomaly = view === "anomaly";
+  hstate.derived = view === "derived";
+  if (!viewAllows(hstate.variable, view)) hstate.variable = hstate.viewVars[view];
+  if (hmeta) { fillHydroVariables(); fillHydroDepths(); }
+  if (t !== null) hydroPendingTime = t;
+  if (hmeta && hData()) { updateHydroSteps(t); hydroPendingTime = null; }
+}
+
 function fillHydroDepths() {
-  const depths = hSrc().depths;
-  if (!depths.includes(hstate.depth)) hstate.depth = depths.reduce((a, b) => (Math.abs(b - hstate.depth) < Math.abs(a - hstate.depth) ? b : a));
-  fillSelect($("hydro-depth"), depths.map((d) => `${d} m`), 0);
-  [...$("hydro-depth").options].forEach((o, i) => { o.value = depths[i]; });
-  $("hydro-depth").value = hstate.depth;
+  const all = hSrc().depths, v = hVar();
+  // N2 is per interval: the deepest standard depth starts none.
+  const depths = v.interval ? all.slice(0, -1) : all;
+  if (!all.includes(hstate.depth)) hstate.depth = all.reduce((a, b) => (Math.abs(b - hstate.depth) < Math.abs(a - hstate.depth) ? b : a));
+  $("hydro-depth-box").hidden = Boolean(v.perCast);
+  $("hydro-depth").innerHTML = depths.map((d, i) => `<option value="${d}">${v.interval ? `${d}–${all[i + 1]} m` : `${d} m`}</option>`).join("");
+  $("hydro-depth").value = String(hEffDepth());
   const [a, b] = hSrc().years;
   $("hydro-source-note").textContent = hstate.source === "bottle"
     ? `Bottle samples at the CalCOFI standard depths, ${a}–${b} (interpolated to the standard depths by CalCOFI).`
@@ -1051,6 +1151,7 @@ function fillHydroDepths() {
 // Hash: the hydrography part.
 function writeHydroHash(params) {
   if (hstate.anomaly) params.set("layer", "anomaly");
+  else if (hstate.derived) params.set("layer", "derived");
   params.set("src", hstate.source);
   params.set("var", hstate.variable);
   params.set("depth", hstate.depth);

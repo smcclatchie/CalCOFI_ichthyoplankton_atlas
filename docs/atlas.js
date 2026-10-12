@@ -735,9 +735,12 @@ async function selectTaxon(t, resetNet, { keepInput = false } = {}) {
   stopPlay();
   state.taxon = t;
   if (resetNet) {
-    // The bongo net by default; its most-used net for a species never caught in a bongo.
-    const bongo = meta.nets.findIndex((n) => n.code === DEFAULT_NET);
-    state.net = bongo >= 0 && t.netRows[bongo] > 0 ? bongo : t.topNet;
+    // Keep the net and life stage chosen unless the new species has no records
+    // with them; then the bongo net, or its most-used net if never caught in a bongo.
+    if (!(t.netRows[state.net] > 0)) {
+      const bongo = meta.nets.findIndex((n) => n.code === DEFAULT_NET);
+      state.net = bongo >= 0 && t.netRows[bongo] > 0 ? bongo : t.topNet;
+    }
     if ((meta.stages[state.stage] === "egg" ? t.eggs : t.larvae) === 0) state.stage = t.eggs > 0 ? 0 : 1;
   }
   if (!keepInput) $("species-input").value = speciesName(t);
@@ -792,18 +795,17 @@ function setMode(mode) {
 // departures from climatology).
 function setLayer(choice) {
   const layer = choice === "ichthyo" ? "ichthyo" : "hydro";
-  const anomaly = choice === "anomaly";
   if (layer === state.layer) {
-    if (layer === "hydro" && anomaly !== hstate.anomaly) {
+    if (layer === "hydro" && choice !== hView()) {
       stopPlay();
-      hstate.anomaly = anomaly;
+      setHydroView(choice);
       updateLayerControls();
       render();
     }
     return;
   }
   stopPlay();
-  hstate.anomaly = anomaly;
+  if (layer === "hydro") setHydroView(choice);
   // The selected station carries across by its "line station" key.
   if (layer === "hydro") {
     hydroPendingTime = ichthyoTime();
@@ -830,13 +832,15 @@ function setLayer(choice) {
 
 function updateLayerControls() {
   const hydro = state.layer === "hydro";
-  setToggle("layer-toggle", !hydro ? "ichthyo" : hstate.anomaly ? "anomaly" : "hydro");
+  setToggle("layer-toggle", !hydro ? "ichthyo" : hView());
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
   renderHighCounts();   // the distribution panels stay open in both views
-  document.querySelector(".subtitle").textContent = hydro && hstate.anomaly
+  document.querySelector(".subtitle").textContent = hydro && hstate.derived && !hstate.anomaly
+    ? "Derived variables from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts: isopycnal, nitricline, chlorophyll-maximum and mixed layer depths, spiciness, N²"
+    : hydro && hstate.anomaly
     ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : hydro
     ? "Temperature, salinity, density, oxygen and nutrients from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
@@ -906,11 +910,17 @@ function setupControls() {
     render();
   });
   $("station-close").addEventListener("click", closeStation);
-  document.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, select")) return;
-    if (e.key === "ArrowLeft") { stopPlay(); step(-1); }
-    if (e.key === "ArrowRight") { stopPlay(); step(1); }
-  });
+  // Left/right arrows always step the time, wherever the focus is (a menu
+  // just changed, a button, the map), so there is no need to click the map
+  // first; only text boxes and the time slider keep them. Up/down are left to
+  // the menus. Captured before the menus see the keys.
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (e.target.matches("input[type=search], input[type=text], input[type=number], input[type=range], textarea")) return;
+    e.preventDefault();
+    stopPlay();
+    step(e.key === "ArrowLeft" ? -1 : 1);
+  }, true);
   setupSpeciesPicker();
   setupSpeciesSelect();
   let resizeTimer = null;
@@ -1536,8 +1546,9 @@ function readHash() {
     const shown = state.season === "sequence" ? params.get("shown") : state.season;
     seasonSteps = [{ season: SEASON_LABEL[shown] ? shown : "winter", year }];
   }
-  if (params.get("layer") === "hydro" || params.get("layer") === "anomaly") state.layer = "hydro";
+  if (["hydro", "anomaly", "derived"].includes(params.get("layer"))) state.layer = "hydro";
   hstate.anomaly = params.get("layer") === "anomaly";
+  hstate.derived = params.get("layer") === "derived";
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
@@ -1672,6 +1683,8 @@ function createMap() {
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   // North stays up: the line labels are drawn at fixed screen angles.
   map.dragRotate.disable();
+  // Arrow keys step the time (setupControls), so the map must not pan with them.
+  map.keyboard.disable();
   map.touchZoomRotate.disableRotation();
   map.keyboard.disableRotation();
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");

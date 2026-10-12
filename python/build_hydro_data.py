@@ -14,7 +14,10 @@ which hold every selection and quality rule; this script only reshapes them:
                                           depth, loaded on demand: station x
                                           survey month values of temperature,
                                           salinity, sigma-theta, oxygen,
-                                          nitrate and silicate
+                                          nitrate, silicate, spiciness and N2
+  docs/data/hydro/<source>/cast.json      per-cast derived depths (sigma-theta
+                                          25.0 surface, nitricline; CTD also
+                                          CalCOFI's chlorophyll max and MLD)
 
 As in the ichthyoplankton view, the atlas steps by survey month (year-month
 of the cast). Where a station was sampled more than once in a month, its
@@ -50,6 +53,22 @@ VARIABLES = {
     "nitrate": {"label": "Nitrate", "units": "µM", "column": "no3", "decimals": 2},   # not "n": that key is the cast count
     "silicate": {"label": "Silicate", "units": "µM", "column": "sio3", "decimals": 2},
 }
+# Derived variables (the companion repo's build_derived_variables.py), shown in
+# the atlas's Derived variables view. At each standard depth (N2: the interval
+# from that depth to the next):
+DERIVED_DEPTH_VARIABLES = {
+    "spiciness": {"label": "Spiciness", "units": "kg m⁻³", "column": "sp", "decimals": 3},
+    "n2": {"label": "N² (Brunt–Väisälä)", "units": "10⁻⁴ s⁻²", "column": "n2", "decimals": 3, "interval": True},
+}
+# One value per cast (a depth), written to <source>/cast.json; CalCOFI's
+# chlorophyll-maximum and mixed layer depths exist for CTD casts only.
+DERIVED_CAST_VARIABLES = {
+    "z_sigma25": {"label": "Depth of σθ 25.0", "units": "m", "column": "zs25", "decimals": 1},
+    "nitricline_depth": {"label": "Nitricline depth", "units": "m", "column": "nitz", "decimals": 1},
+    "chl_max_depth": {"label": "Chlorophyll-maximum depth", "units": "m", "column": "chlz", "decimals": 1, "sources": ["ctd"]},
+    "mld": {"label": "Mixed layer depth", "units": "m", "column": "mld", "decimals": 1, "sources": ["ctd"]},
+}
+DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES}
 
 
 def dump(obj, path):
@@ -57,9 +76,13 @@ def dump(obj, path):
         json.dump(obj, f, separators=(",", ":"))
 
 
-def build_source(key, path, label, out_dir):
+def build_source(key, path, label, out_dir, src_dir):
     con = duckdb.connect()
     df = con.sql(f"SELECT * FROM '{path}' WHERE site_key IS NOT NULL").df()
+    derived = os.path.join(src_dir, "CalCOFI_derived", f"calcofi_{key}_derived_{{}}.parquet")
+    dd = con.sql(f"SELECT \"cast\", depth_m, spiciness, n2 FROM '{derived.format('depths')}'").df()
+    df = df.merge(dd, on=["cast", "depth_m"], how="left")
+    casts = con.sql(f"SELECT * FROM '{derived.format('casts')}' WHERE site_key IS NOT NULL").df()
     df["period"] = df.date.str[:7]
     # cruises: bottle has cruise_id + ship_name; CTD has cruise_key only
     cruise_col = "cruise_id" if "cruise_id" in df else "cruise_key"
@@ -82,7 +105,7 @@ def build_source(key, path, label, out_dir):
 
     # station x survey month x depth means
     sm = (df.groupby(["period", "site_key", "depth_m"])
-            .agg(**{v: (v, "mean") for v in VARIABLES}, n=("cast", "nunique"))
+            .agg(**{v: (v, "mean") for v in DEPTH_VARIABLES}, n=("cast", "nunique"))
             .reset_index())
     os.makedirs(os.path.join(out_dir, key), exist_ok=True)
     depths = sorted(int(d) for d in sm.depth_m.unique())
@@ -90,13 +113,25 @@ def build_source(key, path, label, out_dir):
     for depth in depths:
         g = sm[sm.depth_m == depth].sort_values(["period", "site_key"])
         rec = {"p": [pidx[p] for p in g.period], "st": [sidx[s] for s in g.site_key], "n": g.n.astype(int).tolist()}
-        assert not {spec["column"] for spec in VARIABLES.values()} & set(rec), "variable column clashes with p/st/n"
-        for v, spec in VARIABLES.items():
+        assert not {spec["column"] for spec in DEPTH_VARIABLES.values()} & set(rec), "variable column clashes with p/st/n"
+        for v, spec in DEPTH_VARIABLES.items():
             vals = g[v].round(spec["decimals"])
             rec[spec["column"]] = [None if pd.isna(x) else float(x) for x in vals]
         out = os.path.join(out_dir, key, f"{depth}.json")
         dump(rec, out)
         sizes += os.path.getsize(out)
+
+    # one value per cast: station x survey month means
+    casts["period"] = casts.date.str[:7]
+    present = [v for v in DERIVED_CAST_VARIABLES if v in casts]
+    cm = (casts.groupby(["period", "site_key"]).agg(**{v: (v, "mean") for v in present}, n=("cast", "nunique"))
+               .reset_index().sort_values(["period", "site_key"]))
+    rec = {"p": [pidx[p] for p in cm.period], "st": [sidx[s] for s in cm.site_key], "n": cm.n.astype(int).tolist()}
+    for v in present:
+        spec = DERIVED_CAST_VARIABLES[v]
+        rec[spec["column"]] = [None if pd.isna(x) else float(x) for x in cm[v].round(spec["decimals"])]
+    dump(rec, os.path.join(out_dir, key, "cast.json"))
+    sizes += os.path.getsize(os.path.join(out_dir, key, "cast.json"))
 
     print(f"{label}: {len(periods)} survey months ({periods[0]} to {periods[-1]}), {len(stations)} stations, "
           f"{len(depths)} depths, {sizes / 1e6:.1f} MB")
@@ -120,11 +155,17 @@ def main():
     os.makedirs(args.out_dir)
     meta = {
         "generated": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d"),
-        "variables": {k: {"label": v["label"], "units": v["units"], "column": v["column"]} for k, v in VARIABLES.items()},
+        "variables": {
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"]} for k, v in VARIABLES.items()},
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived",
+                   **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived", "perCast": True,
+                   **({"sources": v["sources"]} if "sources" in v else {})} for k, v in DERIVED_CAST_VARIABLES.items()},
+        },
         "sources": {},
     }
     for key, (rel, label) in SOURCES.items():
-        meta["sources"][key] = build_source(key, os.path.join(args.src_dir, rel), label, args.out_dir)
+        meta["sources"][key] = build_source(key, os.path.join(args.src_dir, rel), label, args.out_dir, args.src_dir)
     dump(meta, os.path.join(args.out_dir, "meta.json"))
     print(f"wrote {args.out_dir}/meta.json ({os.path.getsize(os.path.join(args.out_dir, 'meta.json')) / 1e6:.2f} MB)")
 

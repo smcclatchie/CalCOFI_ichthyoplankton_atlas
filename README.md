@@ -14,7 +14,14 @@ values are spread onto a grid as a Gaussian-weighted mean (e-folding scale
 75 km by default, about the station spacing) and shown only within the
 sampled area. Colour scales float with each map or are fixed for comparison
 across chosen years (all seasons, or only the season shown), and the
-ichthyoplankton for the same month or season can be overlaid.
+ichthyoplankton for the same month or season can be overlaid. Variables:
+temperature, salinity, density, dissolved oxygen, nitrate and silicate.
+
+**Derived variables** maps the depth of the σθ = 25.0 surface, the
+nitricline (steepest nitrate gradient), spiciness and N² (between standard
+depths), and, for CTD casts, CalCOFI's own chlorophyll-maximum and mixed
+layer depths. **Anomalies** maps any of these as departures from each
+station's climatology (calendar month or season, at least 20 years).
 
 The site is static (`docs/`) and is served by GitHub Pages. It uses
 [MapLibre GL JS](https://maplibre.org/) and a Natural Earth coastline; no map
