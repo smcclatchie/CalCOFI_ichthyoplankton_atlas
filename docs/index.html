@@ -230,6 +230,10 @@
       <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
         <header>
           <h2 id="station-title"></h2>
+          <div class="segmented chart-toggle" id="chart-toggle" role="radiogroup" aria-label="Station chart" hidden>
+            <button type="button" role="radio" data-value="larvae" aria-checked="true">Larvae</button>
+            <button type="button" role="radio" data-value="hydro" aria-checked="false">Hydrography</button>
+          </div>
           <button type="button" id="station-close" aria-label="Close station chart">✕</button>
         </header>
         <div id="station-chart"></div>

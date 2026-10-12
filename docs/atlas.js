@@ -529,8 +529,9 @@ function stationSeries(st) {
   return series;
 }
 
-function renderStationChart() {
-  const st = state.station;
+// st: the station (ichthyoplankton index); the hydrography views pass theirs.
+function renderStationChart(st = state.station) {
+  if (state.layer !== "hydro") $("chart-toggle").hidden = true;
   const series = stationSeries(st);
   $("station-panel").hidden = false;
   document.querySelector(".map-area").classList.add("station-open");
@@ -618,13 +619,16 @@ function renderStationChart() {
     stopPlay();
     if (best.step) {
       state.seasonPos = seasonSteps.findIndex((s) => s.season === best.step.season && s.year === best.step.year);
-      render();
-      return;
+    } else {
+      if (state.mode !== "month") setMode("month");
+      state.periodPos = available.indexOf(best.p);
     }
-    state.periodPos = available.indexOf(best.p);
-    if (state.mode !== "month") setMode("month"); else render();
+    // In the hydrography views the map moves to that time too.
+    if (state.layer === "hydro") updateHydroSteps(ichthyoTime());
+    render();
   });
 
+  if (state.layer === "hydro") return;      // the hydrography views draw their own ring
   map.getSource("selected").setData({
     type: "FeatureCollection",
     features: [{ type: "Feature", geometry: { type: "Point", coordinates: [meta.stations[st].lon, meta.stations[st].lat] }, properties: {} }],

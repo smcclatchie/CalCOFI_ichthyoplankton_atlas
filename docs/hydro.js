@@ -157,6 +157,7 @@ const hstate = {
   periodPos: 0,          // position within hAvailable
   seasonPos: 0,          // position within hSteps
   stationKey: null,      // selected station "line station" (shared with the ichthyoplankton view)
+  chart: "larvae",       // station chart in these views: "larvae" (the ichthyoplankton series) or "hydro"
   anomaly: false,        // the Anomalies view: departures from each station's climatology
   derived: false,        // the Derived variables view
   watermass: false,      // the Water masses view (properties on isopycnals, CTD)
@@ -1014,6 +1015,22 @@ function renderHydroChart() {
   map.getSource("hydro-selected").setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: {} }] });
   $("station-panel").hidden = false;
   document.querySelector(".map-area").classList.add("station-open");
+  $("chart-toggle").hidden = false;
+  setToggle("chart-toggle", hstate.chart);
+  if (hstate.chart === "larvae") {
+    // The larval time series at this station, as in the ichthyoplankton view,
+    // marked at the time the hydrography map shows.
+    const fishSt = meta.stations.findIndex((x) => x.key === key);
+    if (fishSt < 0 || !state.taxon || !taxonCache.has(state.taxon.id)) {
+      $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — no ichthyoplankton tows at this station`;
+      $("station-chart").innerHTML = "";
+      return;
+    }
+    const t = hTime();
+    if (t !== null) setIchthyoTime(t);
+    renderStationChart(fishSt);
+    return;
+  }
   if (st < 0) {
     $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — no ${hSourceWord()} data at this station`;
     $("station-chart").innerHTML = "";
@@ -1136,6 +1153,11 @@ function setupHydroControls() {
   });
   $("ternary-close").addEventListener("click", () => { $("ternary-panel").hidden = true; $("ternary-open").setAttribute("aria-pressed", "false"); });
   $("hydro-smoothing").addEventListener("change", (e) => { hstate.smoothing = Number(e.target.value); render(); });
+  document.querySelectorAll("#chart-toggle button").forEach((b) => b.addEventListener("click", () => {
+    hstate.chart = b.dataset.value;
+    renderHydroChart();
+    writeHash();
+  }));
   $("hydro-overlay").addEventListener("change", async (e) => {
     hstate.overlay = e.target.checked;
     updateLayerControls();
@@ -1241,6 +1263,7 @@ function writeHydroHash(params) {
   if (hstate.smoothing !== 75) params.set("L", hstate.smoothing);
   if (hstate.overlay) params.set("overlay", "1");
   if (hstate.stationKey !== null) params.set("hst", hstate.stationKey);
+  if (hstate.chart === "hydro") params.set("chart", "hydro");
   if (!hmeta) return;
   if (state.mode === "month" && hAvailable.length) params.set("survey", hSrc().periods[hAvailable[hstate.periodPos]].key);
   if (state.mode === "season" && hSteps.length) {
@@ -1254,6 +1277,7 @@ function writeHydroHash(params) {
 function readHydroHash(params) {
   if (params.get("src") in { bottle: 1, ctd: 1 }) hstate.source = params.get("src");
   if (hmeta && params.get("var") in hmeta.variables) hstate.variable = params.get("var");
+  if (params.get("chart") === "hydro") hstate.chart = "hydro";
   if (params.has("depth")) hstate.depth = Number(params.get("depth")) || 50;
   if ([25.8, 26.4].includes(Number(params.get("iso")))) hstate.isopycnal = Number(params.get("iso"));
   // (The view flags are set just before this, by readHash.)
@@ -1264,7 +1288,7 @@ function readHydroHash(params) {
   if (cmp.length === 2 && cmp.every(Number.isFinite)) hstate.compare = [Math.min(...cmp), Math.max(...cmp)];
   if (SMOOTHING_KM.includes(Number(params.get("L")))) hstate.smoothing = Number(params.get("L"));
   hstate.overlay = params.get("overlay") === "1";
-  if (params.get("layer") === "hydro" && params.has("hst")) hstate.stationKey = params.get("hst");
+  if (["hydro", "derived", "anomaly", "watermass"].includes(params.get("layer")) && params.has("hst")) hstate.stationKey = params.get("hst");
   // The time to open on.
   const survey = params.get("survey");
   if (survey) hydroPendingTime = Number(survey.slice(0, 4)) + (Number(survey.slice(5, 7)) - 0.5) / 12;
