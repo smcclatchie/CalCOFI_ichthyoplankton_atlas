@@ -14,16 +14,21 @@ const PLAY_INTERVAL_MS = 2000;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
   "August", "September", "October", "November", "December"];
 
-// Reverse viridis on log10 abundance: pale yellow (low) to dark purple (high),
-// perceptually uniform and colour-vision-deficiency safe. Every catch symbol is
-// the same size (colour alone carries abundance); a thin dark outline keeps the
-// pale low classes visible against the light sea, and over the hydrography each
-// symbol sits on a white disc (see symbolStyle). Zero catches are small and grey.
+// Magma on log10 abundance: purple (low) through red and orange to pale yellow
+// (high), perceptually uniform and colour-vision-deficiency safe; its
+// near-black end is left out so the lowest class shows against the symbols'
+// dark rim. Every catch symbol is the same size (colour alone carries
+// abundance) and sits on a dark disc with a thin white ring, so the high,
+// bright classes glow on any background and the low, dark ones stay visible on
+// dark palettes: the light sea or the hydrography's (see symbolStyle).
+// Zero catches are small and grey.
 // Ten classes; boundaries come from the colour-scale template (see SCALE_TEMPLATES).
-const CLASSES = ["#fde725", "#b5de2b", "#6ece58", "#35b779", "#1f9e89", "#26828e", "#31688e", "#3e4a89", "#482878", "#440154"]
+const CLASSES = ["#440f76", "#671b80", "#892881", "#ad347c", "#d2426f", "#ee5b5e", "#fb835f", "#feac76", "#fed597", "#fcfdbf"]
   .map((color) => ({ color, radius: 5 }));
 const ZERO = { color: "#a9a7a0", radius: 2.2 };
 const OUTLINE = "rgba(31, 30, 28, 0.55)";
+const DISC = "#1f1e1c";        // the dark disc under each catch symbol
+const RING_PX = 1;             // the white ring around it
 const DEFAULT_NET = "CB";      // CalCOFI bongo, the standard net since 1978
 const DEFAULT_STATION = "090.0 060.0";   // Line 90, station 60: time series open on page load
 
@@ -43,7 +48,7 @@ const state = {
 
 let meta, occ, taxa, map, popup;
 let mapReady = false;          // set once on "load"; isStyleLoaded() is false while a source updates
-let lineMarkers = [];          // CalCOFI line-number labels currently on the map
+let lineMarkers = [];          // CalCOFI line- and station-number labels currently on the map
 // Lines need this many stations in view to be labelled: the modern pattern's
 // one- or two-station inshore "lines" (e.g. 81.8, 86.8, 93.4) would otherwise
 // stack labels against the coast.
@@ -313,7 +318,7 @@ function render() {
   if (!state.taxon || !taxonCache.has(state.taxon.id) || !mapReady) return;
   setHydroVisible(false);
   symbolStyle(false);
-  for (const id of ["zero", "catch", "selected"]) map.setLayoutProperty(id, "visibility", "visible");
+  for (const id of ["zero", "catch-ring", "catch", "selected"]) map.setLayoutProperty(id, "visibility", "visible");
   const fc = features();
   map.getSource("stations").setData(fc);
   renderLineLabels(fc);
@@ -349,18 +354,21 @@ function render() {
 // map font files.
 const LABEL_GAP_PX = 8;
 let lineAxes = null;           // line -> {ux, uy, angle}: screen-space direction, west -> east
+let stationAxes = null;        // station number -> the same, along its row across the lines
+let lastLabelled = null;       // [stationList, line axes, station axes] of the map shown, relaid on zoom
 
 // Web Mercator y for a latitude, in degree-equivalent units (x is longitude),
 // so directions computed here match the map's screen angles at every zoom.
 const mercatorY = (lat) => (Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) * 180) / Math.PI;
 
-function computeLineAxes(stationList) {
-  // Best-fit (principal-axis) direction of every station on each line, over the
-  // whole record, so a survey that sampled part of a line still gets its angle.
+function computeLineAxes(stationList, key = "line") {
+  // Best-fit (principal-axis) direction of every station on each line (or, with
+  // key "station", each station-number row across the lines), over the whole
+  // record, so a survey that sampled part of a line still gets its angle.
   const byLine = new Map();
   for (const s of stationList) {
-    if (!byLine.has(s.line)) byLine.set(s.line, []);
-    byLine.get(s.line).push([s.lon, mercatorY(s.lat)]);
+    if (!byLine.has(s[key])) byLine.set(s[key], []);
+    byLine.get(s[key]).push([s.lon, mercatorY(s.lat)]);
   }
   const axes = new Map();
   for (const [line, pts] of byLine) {
@@ -380,45 +388,86 @@ function computeLineAxes(stationList) {
 function renderLineLabels(fc) {
   for (const m of lineMarkers) m.remove();
   lineMarkers = [];
+  lastLabelled = null;
   if (meta.samplings[state.sampling] !== "standard") return;
   if (!lineAxes) lineAxes = computeLineAxes(meta.stations);
-  placeLineLabels(fc.features.map((f) => meta.stations[f.properties.st]), lineAxes);
+  if (!stationAxes) stationAxes = computeLineAxes(meta.stations, "station");
+  placeLineLabels(fc.features.map((f) => meta.stations[f.properties.st]), lineAxes, stationAxes);
 }
 
-// Labels for stations [{line, lon, lat}] with line axes `axes` (the
-// hydrography view passes its own stations).
-function placeLineLabels(stationList, axes) {
-  const lineAxes = axes;
-  const end = new Map();    // line -> offshore-most station along the line's axis
-  const count = new Map();  // line -> stations in view
-  for (const s of stationList) {
-    count.set(s.line, (count.get(s.line) || 0) + 1);
-    const axis = lineAxes.get(s.line);
-    const along = axis ? s.lon * axis.ux - mercatorY(s.lat) * axis.uy : s.lon;   // larger = further east
-    const best = end.get(s.line);
-    if (!best || along < best.along) end.set(s.line, { s, along });
+// Labels for stations [{line, station, lon, lat}] with line axes `axes` and
+// station-row axes `stAxes` (the hydrography view passes its own stations).
+// Line numbers go beyond each line's offshore (western) end. Station numbers
+// go likewise beyond the end of each station-number row (the stations with
+// that number across the lines), at the northern edge of the pattern where the
+// row reaches the northernmost line shown, else at the southern edge; rows
+// ending inside the pattern (inshore, along the curving coast) and labels that
+// would overlap one already placed are left out.
+function placeLineLabels(stationList, axes, stAxes) {
+  for (const m of lineMarkers) m.remove();
+  lineMarkers = [];
+  lastLabelled = [stationList, axes, stAxes];
+  const placed = [];
+  const along = (s, axis) => (axis ? s.lon * axis.ux - mercatorY(s.lat) * axis.uy : s.lon);   // larger = further east
+  const groups = (key) => {
+    const g = new Map();
+    for (const s of stationList) {
+      if (!g.has(s[key])) g.set(s[key], []);
+      g.get(s[key]).push(s);
+    }
+    return [...g].filter(([, list]) => list.length >= MIN_LINE_STATIONS);
+  };
+  const ends = (list, axis) => list.reduce((e, s) => {
+    const a = along(s, axis);
+    if (!e.w || a < e.wa) { e.w = s; e.wa = a; }
+    if (!e.e || a > e.ea) { e.e = s; e.ea = a; }
+    return e;
+  }, {});
+  const lines = groups("line");
+  for (const [line, list] of lines) {
+    const axis = axes.get(line) || { ux: 1, uy: 0, angle: 0 };
+    placed.push(axisLabel(line, "line", ends(list, axis).w, axis, -1));
   }
-  for (const [line, { s }] of end) {
-    if (count.get(line) < MIN_LINE_STATIONS) continue;
-    const axis = lineAxes.get(line) || { ux: 1, uy: 0, angle: 0 };
-    const el = document.createElement("div");
-    el.className = "line-label";
-    el.textContent = Number.isInteger(line) ? String(line) : line.toFixed(1);
-    el.title = `CalCOFI line ${line.toFixed(1)}`;
-    // Anchored and rotated at its centre, with that centre placed on the
-    // line's extension half a label-width beyond the gap, so the extended line
-    // bisects the text. (MapLibre rotates a marker about the element's centre,
-    // not its anchor, so an end-anchored label would sit off the line.)
-    const marker = new maplibregl.Marker({
-      element: el,
-      anchor: "center",
-      rotation: axis.angle,
-      rotationAlignment: "viewport",
-    }).setLngLat([s.lon, s.lat]).addTo(map);
-    const back = LABEL_GAP_PX + el.offsetWidth / 2;
-    marker.setOffset([-back * axis.ux, -back * axis.uy]);
-    lineMarkers.push(marker);
+  if (!stAxes || !lines.length) return;
+  const north = Math.min(...lines.map(([l]) => l)), south = Math.max(...lines.map(([l]) => l));
+  for (const [st, list] of groups("station")) {
+    const axis = stAxes.get(st);
+    if (!axis) continue;
+    const e = ends(list, axis);
+    for (const [s, dir] of [[e.w, -1], [e.e, 1]]) {
+      if (s.line !== (dir < 0 ? north : south)) continue;
+      const r = axisLabel(st, "station", s, axis, dir);
+      if (placed.some((q) => r.left < q.right + 3 && r.right > q.left - 3 && r.top < q.bottom + 3 && r.bottom > q.top - 3)) {
+        lineMarkers.pop().remove();
+        continue;
+      }
+      placed.push(r);
+      break;
+    }
   }
+}
+
+// One label for line or station number `n`, beyond station `s` along `axis`
+// (dir -1: beyond the western end, +1: the eastern); returns its screen box.
+function axisLabel(n, key, s, axis, dir) {
+  const el = document.createElement("div");
+  el.className = "line-label";
+  el.textContent = Number.isInteger(n) ? String(n) : n.toFixed(1);
+  el.title = `CalCOFI ${key} ${n.toFixed(1)}`;
+  // Anchored and rotated at its centre, with that centre placed on the
+  // axis's extension half a label-width beyond the gap, so the extended line
+  // bisects the text. (MapLibre rotates a marker about the element's centre,
+  // not its anchor, so an end-anchored label would sit off the line.)
+  const marker = new maplibregl.Marker({
+    element: el,
+    anchor: "center",
+    rotation: axis.angle,
+    rotationAlignment: "viewport",
+  }).setLngLat([s.lon, s.lat]).addTo(map);
+  const back = LABEL_GAP_PX + el.offsetWidth / 2;
+  marker.setOffset([dir * back * axis.ux, dir * back * axis.uy]);
+  lineMarkers.push(marker);
+  return el.getBoundingClientRect();
 }
 
 // The label on the land side of the map: when, which cruises, which species,
@@ -822,6 +871,7 @@ function setLayer(choice) {
     map.getSource("selected").setData({ type: "FeatureCollection", features: [] });
     for (const m of lineMarkers) m.remove();
     lineMarkers = [];
+    lastLabelled = null;
   } else {
     setIchthyoTime(hmeta && hData() ? hTime() : null);
     const i = hstate.stationKey !== null ? meta.stations.findIndex((s) => s.key === hstate.stationKey) : -1;
@@ -1593,11 +1643,14 @@ function readHash() {
   return { taxon, survey, station };
 }
 
-// Symbol outlines: thin and dark on the light sea; a white disc over the
-// hydrography's colours, so the abundance colours stand out on any palette.
+// Catch symbols on a dark disc (narrower on the light sea, wider over the
+// hydrography's colours) inside a thin white ring, so the abundance colours
+// stand out on any palette, dark or light.
 function symbolStyle(overHydro) {
-  map.setPaintProperty("catch", "circle-stroke-color", overHydro ? "#ffffff" : OUTLINE);
-  map.setPaintProperty("catch", "circle-stroke-width", overHydro ? 2.5 : 0.6);
+  const disc = overHydro ? 2.5 : 1.6;
+  map.setPaintProperty("catch", "circle-stroke-color", DISC);
+  map.setPaintProperty("catch", "circle-stroke-width", disc);
+  map.setPaintProperty("catch-ring", "circle-radius", ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius + disc]), ZERO.radius]);
   map.setPaintProperty("zero", "circle-stroke-color", "#ffffff");
   map.setPaintProperty("zero", "circle-stroke-width", overHydro ? 1.5 : 0);
   map.setPaintProperty("zero", "circle-opacity", overHydro ? 1 : 0.8);
@@ -1702,6 +1755,10 @@ function createMap() {
           paint: { "circle-color": ZERO.color, "circle-radius": ZERO.radius, "circle-opacity": 0.8 },
         },
         {
+          id: "catch-ring", type: "circle", source: "stations", filter: [">=", ["get", "cls"], 0],
+          paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": CLASSES[0].radius + 1.6, "circle-stroke-color": "#ffffff", "circle-stroke-width": RING_PX },
+        },
+        {
           id: "catch", type: "circle", source: "stations", filter: [">=", ["get", "cls"], 0],
           layout: { "circle-sort-key": ["get", "a"] },
           paint: {
@@ -1750,6 +1807,8 @@ function createMap() {
     });
   }
   map.on("moveend", placeLogo);
+  // Station-number labels are kept clear of each other at the zoom shown.
+  map.on("zoomend", () => { if (lastLabelled) placeLineLabels(...lastLabelled); });
   map.on("resize", placeLogo);
   map.on("idle", placeLogo);
   return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; resolve(); }));

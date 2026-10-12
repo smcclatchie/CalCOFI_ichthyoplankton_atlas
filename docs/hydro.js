@@ -821,11 +821,11 @@ async function renderHydro() {
     for (const s of ["hydro-fill", "hydro-mask"]) map.getSource(s).setData(empty);
   }
   layoutContourLabels();
-  // CalCOFI line numbers, from this map's stations.
-  for (const m of lineMarkers) m.remove();
-  lineMarkers = [];
-  if (!hLineAxesCache.has(hSrcKey())) hLineAxesCache.set(hSrcKey(), computeLineAxes(hSrc().stations));
-  placeLineLabels(points.map((q) => stations[q.st]), hLineAxesCache.get(hSrcKey()));
+  // CalCOFI line and station numbers, from this map's stations.
+  if (!hLineAxesCache.has(hSrcKey())) {
+    hLineAxesCache.set(hSrcKey(), [computeLineAxes(hSrc().stations), computeLineAxes(hSrc().stations, "station")]);
+  }
+  placeLineLabels(points.map((q) => stations[q.st]), ...hLineAxesCache.get(hSrcKey()));
 
   // Ichthyoplankton overlay: the matching survey month(s) for the chosen
   // species, stage, net and sampling.
@@ -833,7 +833,7 @@ async function renderHydro() {
   const fishPeriods = showFish ? ichthyoPeriodsForHydro() : [];
   const fc = showFish ? features(fishPeriods, state.mode) : empty;
   map.getSource("stations").setData(fc);
-  for (const id of ["zero", "catch"]) map.setLayoutProperty(id, "visibility", showFish ? "visible" : "none");
+  for (const id of ["zero", "catch-ring", "catch"]) map.setLayoutProperty(id, "visibility", showFish ? "visible" : "none");
   symbolStyle(true);
   map.getSource("selected").setData(empty);
 
