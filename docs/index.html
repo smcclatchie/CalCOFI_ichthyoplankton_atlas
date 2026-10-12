@@ -61,6 +61,25 @@
         <p id="hydro-iso-note" class="hint watermass-only" hidden></p>
       </section>
 
+      <section class="control hydro-only hydro-view-only" hidden>
+        <span class="label">Display</span>
+        <div class="segmented" id="hydro-display" role="radiogroup" aria-label="Display">
+          <button type="button" role="radio" data-value="map" aria-checked="true">Map</button>
+          <button type="button" role="radio" data-value="section" aria-checked="false">Section</button>
+        </div>
+        <div id="section-controls" class="two-up section-controls" hidden>
+          <div>
+            <label for="section-line-select">Line</label>
+            <select id="section-line-select"></select>
+          </div>
+          <div>
+            <label for="section-variable">Section</label>
+            <select id="section-variable"></select>
+          </div>
+          <p class="hint">Depth against distance along the line (coast on the right) for the month or season shown; stations joined linearly, no smoothing. Geostrophic velocity across the line is relative to 500 dbar, from CalCOFI's dynamic heights at neighbouring stations, poleward positive.</p>
+        </div>
+      </section>
+
       <section class="control hydro-only" hidden>
         <label for="hydro-smoothing">Smoothing</label>
         <select id="hydro-smoothing"></select>
@@ -227,6 +246,13 @@
         </header>
         <iframe id="ternary-frame" title="Ternary plot of water-mass composition and warm/cool-water larvae" loading="lazy"></iframe>
       </section>
+      <section id="section-panel" class="section-panel" hidden aria-label="Hydrographic section">
+        <header>
+          <h2 id="section-title"></h2>
+          <button type="button" id="section-panel-close" aria-label="Back to the map">✕</button>
+        </header>
+        <div id="section-chart"></div>
+      </section>
       <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
         <header>
           <h2 id="station-title"></h2>
@@ -244,6 +270,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.0/maplibre-gl.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
   <script src="hydro.js"></script>
+  <script src="section.js"></script>
   <script src="atlas.js"></script>
 </body>
 </html>

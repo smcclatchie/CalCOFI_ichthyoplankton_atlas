@@ -763,6 +763,7 @@ function addHydroLayers() {
   });
   map.on("mouseout", () => popup.remove());
   map.on("moveend", () => { if (state.layer === "hydro") layoutContourLabels(); });
+  addSectionLayers();
 }
 
 function setHydroVisible(on) {
@@ -856,6 +857,7 @@ async function renderHydro() {
     $("station-panel").hidden = true;
     map.getSource("hydro-selected").setData(empty);
   }
+  renderSection();       // a section in place of the station chart (Hydrography view, Section display)
   writeHash();
 }
 let hydroPendingTime = null;
@@ -871,6 +873,7 @@ function anomalyNote() {
 }
 const hSigned = (v) => `${hstate.anomaly && v > 0 ? "+" : ""}${hFmt(v)}`.replace("-", "−");
 // Axis and colour-bar ticks: anomalies get a sign (+ / true minus).
+const signedValue = (v) => (v > 0 ? `+${+v.toFixed(3)}` : String(+v.toFixed(3)).replace("-", "−"));
 const signedTick = (v) => {
   const t = String(+v.toFixed(3));
   return hstate.anomaly ? (v > 0 ? `+${t}` : t.replace("-", "−")) : t;
@@ -897,22 +900,24 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
     `<span class="bar-title">${hTitle()}</span>${hydroColourBar(300)}${anomalyNote()}${fish}`;
 }
 
-function hydroColourBar(width) {
-  if (!hLevels) return "";
-  const { levels, colors, fixed, below, above } = hLevels;
+// lv: a scale from hydroScale() (the map's, by default; sections pass theirs);
+// signed: label positive ticks with + (anomalies, velocities).
+function hydroColourBar(width, lv = hLevels, signed = hstate.anomaly) {
+  if (!lv) return "";
+  const { levels, colors, fixed, below, above } = lv;
   const n = colors.length, tri = fixed ? 8 : 0, m = { l: 14 + tri, r: 16 + tri }, h = 12;
   const w = width - m.l - m.r, bw = w / n;
   const parts = [];
-  if (hLevels.smooth) {
+  if (lv.smooth) {
     const steps = 60;
     for (let i = 0; i < steps; i++) {
       const v = levels[0] + ((i + 0.5) / steps) * (levels[levels.length - 1] - levels[0]);
-      parts.push(`<rect x="${m.l + (i * w) / steps}" y="2" width="${w / steps + 0.4}" height="${h}" fill="${rgbText(hLevels.colorAt(v))}"/>`);
+      parts.push(`<rect x="${m.l + (i * w) / steps}" y="2" width="${w / steps + 0.4}" height="${h}" fill="${rgbText(lv.colorAt(v))}"/>`);
     }
   } else {
     colors.forEach((c, i) => parts.push(`<rect x="${m.l + i * bw}" y="2" width="${bw + 0.3}" height="${h}" fill="${c}"/>`));
   }
-  const lo = rgbText(hLevels.colorAt(levels[0])), hi = rgbText(hLevels.colorAt(levels[levels.length - 1]));
+  const lo = rgbText(lv.colorAt(levels[0])), hi = rgbText(lv.colorAt(levels[levels.length - 1]));
   if (fixed) {
     parts.push(`<path d="M${m.l} 2 L${m.l - tri} ${2 + h / 2} L${m.l} ${2 + h} Z" fill="${lo}" opacity="${below ? 1 : 0.35}"/>`);
     parts.push(`<path d="M${m.l + w} 2 L${m.l + w + tri} ${2 + h / 2} L${m.l + w} ${2 + h} Z" fill="${hi}" opacity="${above ? 1 : 0.35}"/>`);
@@ -927,7 +932,7 @@ function hydroColourBar(width) {
     if (i % every) return;
     const x = m.l + i * bw;
     parts.push(`<line x1="${x}" x2="${x}" y1="${2 + h}" y2="${5 + h}" stroke="#85837c"/>`);
-    parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${signedTick(v)}</text>`);
+    parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${signed ? signedValue(v) : String(+v.toFixed(3))}</text>`);
   });
   return `<svg class="colour-bar" viewBox="0 0 ${width} ${h + 20}" width="${width}" height="${h + 20}" role="img" aria-label="Colour scale">${parts.join("")}</svg>`;
 }
@@ -1175,6 +1180,7 @@ function setupHydroControls() {
   $("hydro-compare-from").addEventListener("change", compare);
   $("hydro-compare-to").addEventListener("change", compare);
   fillHydroVariables();
+  setupSectionControls();
   fillSelect($("hydro-smoothing"), SMOOTHING_KM.map((k) => `${k} km${k === 75 ? " (default)" : ""}`), 0);
   [...$("hydro-smoothing").options].forEach((o, i) => { o.value = SMOOTHING_KM[i]; });
   $("hydro-smoothing").value = hstate.smoothing;
@@ -1264,6 +1270,7 @@ function writeHydroHash(params) {
   if (hstate.overlay) params.set("overlay", "1");
   if (hstate.stationKey !== null) params.set("hst", hstate.stationKey);
   if (hstate.chart === "hydro") params.set("chart", "hydro");
+  if (hView() === "hydro") writeSectionHash(params);
   if (!hmeta) return;
   if (state.mode === "month" && hAvailable.length) params.set("survey", hSrc().periods[hAvailable[hstate.periodPos]].key);
   if (state.mode === "season" && hSteps.length) {
@@ -1278,6 +1285,7 @@ function readHydroHash(params) {
   if (params.get("src") in { bottle: 1, ctd: 1 }) hstate.source = params.get("src");
   if (hmeta && params.get("var") in hmeta.variables) hstate.variable = params.get("var");
   if (params.get("chart") === "hydro") hstate.chart = "hydro";
+  readSectionHash(params);
   if (params.has("depth")) hstate.depth = Number(params.get("depth")) || 50;
   if ([25.8, 26.4].includes(Number(params.get("iso")))) hstate.isopycnal = Number(params.get("iso"));
   // (The view flags are set just before this, by readHash.)

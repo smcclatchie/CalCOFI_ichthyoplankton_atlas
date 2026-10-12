@@ -81,6 +81,12 @@ FRACTION_VARIABLES = {
     "wm_npcw": {"label": "North Pacific Central water (NPCW)", "units": "%", "column": "npcw", "decimals": 1, "from": "NPCW"},
 }
 DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES, **FRACTION_VARIABLES}
+# Hydrographic sections (Hydrography view): per source and CalCOFI line, the
+# station x survey month x standard-depth values, in <source>/line<L>.json.
+# dynamic_height (CalCOFI's, accumulated from the surface) lets the atlas
+# compute geostrophic velocity between neighbouring stations.
+SECTION_LINES = [90.0, 80.0, 60.0]
+SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "n2": "n2", "dynamic_height": "dh"}
 # Water masses view: properties on two isopycnals, from CTD casts only
 # (the companion repo's build_isopycnal_properties.py), written to
 # ctd/iso<surface>.json.
@@ -161,6 +167,21 @@ def build_source(key, path, label, out_dir, src_dir):
     dump(rec, os.path.join(out_dir, key, "cast.json"))
     sizes += os.path.getsize(os.path.join(out_dir, key, "cast.json"))
 
+    # sections: station x survey month x depth means on each section line
+    depths_all = sorted(int(d) for d in df.depth_m.unique())
+    didx = {d: i for i, d in enumerate(depths_all)}
+    for line in SECTION_LINES:
+        g = (df[df.line == line].groupby(["period", "site_key", "depth_m"])
+             .agg(**{v: (v, "mean") for v in SECTION_COLUMNS}, n=("cast", "nunique"))
+             .reset_index().sort_values(["period", "site_key", "depth_m"]))
+        rec = {"p": [pidx[p] for p in g.period], "st": [sidx[s] for s in g.site_key],
+               "z": [didx[int(d)] for d in g.depth_m], "n": g.n.astype(int).tolist()}
+        for v, col in SECTION_COLUMNS.items():
+            rec[col] = [None if pd.isna(x) else round(float(x), 4) for x in g[v]]
+        path = os.path.join(out_dir, key, f"line{line:g}.json")
+        dump(rec, path)
+        sizes += os.path.getsize(path)
+
     # isopycnal properties (CTD only): station x survey month means per surface
     iso_path = os.path.join(src_dir, ISOPYCNAL_FILE)
     if key == "ctd" and os.path.exists(iso_path):
@@ -211,6 +232,7 @@ def main():
                for k, v in FRACTION_VARIABLES.items()},
         },
         "isopycnals": ISOPYCNALS,
+        "sectionLines": SECTION_LINES,
         "sources": {},
     }
     for key, (rel, label) in SOURCES.items():

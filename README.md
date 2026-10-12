@@ -15,7 +15,11 @@ values are spread onto a grid as a Gaussian-weighted mean (e-folding scale
 sampled area. Colour scales float with each map or are fixed for comparison
 across chosen years (all seasons, or only the season shown), and the
 ichthyoplankton for the same month or season can be overlaid. Variables:
-temperature, salinity, density, dissolved oxygen, nitrate and silicate.
+temperature, salinity, density, dissolved oxygen, nitrate and silicate. Its
+Section display draws depth-distance sections along CalCOFI lines 90, 80 and
+60 (temperature, salinity, sigma-theta, oxygen, stability N², and geostrophic
+velocity across the line relative to 500 dbar from CalCOFI's dynamic
+heights) for the month or season shown.
 
 **Derived variables** maps the depth of the σθ = 25.0 surface, the
 nitricline (steepest nitrate gradient), spiciness and N² (between standard
