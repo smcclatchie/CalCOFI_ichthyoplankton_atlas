@@ -70,6 +70,8 @@ DERIVED_CAST_VARIABLES = {
     "nitricline_depth": {"label": "Nitricline depth", "units": "m", "column": "nitz", "decimals": 1},
     "chl_max_depth": {"label": "Chlorophyll-maximum depth", "units": "m", "column": "chlz", "decimals": 1, "sources": ["ctd"]},
     "mld": {"label": "Mixed layer depth", "units": "m", "column": "mld", "decimals": 1, "sources": ["ctd"]},
+    # CalCOFI's 0/500 dbar dynamic height (Water masses view, "Circulation")
+    "dyn_height": {"label": "Dynamic height, 0/500 dbar", "units": "dyn m", "column": "dh", "decimals": 3, "group": "dynamic"},
 }
 # Water-mass fractions (OMP, the companion repo's build_water_mass_fractions.py),
 # percent, at the standard depths 0-400 m; shown in the Water masses view.
@@ -201,7 +203,7 @@ def main():
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"]} for k, v in VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived",
                    **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
-            **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived", "perCast": True,
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": v.get("group", "derived"), "perCast": True,
                    **({"sources": v["sources"]} if "sources" in v else {})} for k, v in DERIVED_CAST_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "isopycnal",
                    "style": v["style"], "sources": ["ctd"]} for k, v in ISOPYCNAL_VARIABLES.items()},

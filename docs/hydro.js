@@ -85,6 +85,12 @@ const HYDRO_STYLES = {
     stops: ["#b1dea5", "#99cf8c", "#7ec175", "#61b361", "#3da654", "#189750", "#07864d", "#0e7548", "#156540", "#195437", "#1a442c", "#173420", "#122414"],
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
+  // 0/500 dbar dynamic height: the in-situ counterpart of sea surface height,
+  // so the Fishing Maps SSH style (cmocean balance bands, black contours, seagreen land).
+  dyn_height: {
+    stops: ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"],
+    smooth: false, line: "#000000", lineWidth: 1.1, land: "#2e8b57",
+  },
   // Water-mass fractions: Pacific Subarctic blue (cmocean ice, reversed),
   // Pacific Equatorial red (amp), North Pacific Central green (speed).
   wm_psa: {
@@ -125,6 +131,7 @@ const ANOMALY_STYLES = {
   nitricline_depth: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
   chl_max_depth: ["#7a3d8f", "#9558a8", "#b07cc0", "#c9a2d5", "#dfc6e6", "#efe3f2", "#f2f2ef", "#cfe8c8", "#99cf8c", "#3da654", "#07864d", "#195437", "#122414"],
   mld: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
+  dyn_height: ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"],
   wm_psa: ["#9a5b16", "#b8771f", "#d29539", "#e5b66a", "#f0d49f", "#f6e8cf", "#f2f2ef", "#c6e1ea", "#83c5d3", "#4a8abd", "#3e61ab", "#3a3c7b", "#0f1024"],
   wm_pew: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f3f1ee", "#e5cfc9", "#d7a291", "#ca775b", "#ba492f", "#9d1926", "#540d1d"],
   wm_npcw: ["#7a3d8f", "#9558a8", "#b07cc0", "#c9a2d5", "#dfc6e6", "#efe3f2", "#f2f2ef", "#e4e3b0", "#c9ba45", "#8ea20b", "#498a16", "#0f6b2b", "#172313"],
@@ -175,7 +182,7 @@ const hSrc = () => hmeta.sources[hSrcKey()];
 // (derived variables), "watermass" (properties on isopycnals) or "anomaly"
 // (departures from climatology, of any of them).
 const hView = () => (hstate.anomaly ? "anomaly" : hstate.derived ? "derived" : hstate.watermass ? "watermass" : "hydro");
-const VIEW_GROUPS = { hydro: [undefined], derived: ["derived"], watermass: ["isopycnal", "fraction"] };
+const VIEW_GROUPS = { hydro: [undefined], derived: ["derived"], watermass: ["isopycnal", "fraction", "dynamic"] };
 const viewAllows = (key, view = hView()) => view === "anomaly" || VIEW_GROUPS[view].includes(hmeta.variables[key].group);
 const isIso = () => hVar().group === "isopycnal";
 const TERNARY_URL = "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0";
@@ -199,14 +206,18 @@ const styleKey = () => hVar().style || hstate.variable;
 const hStyle = () => (hstate.anomaly
   ? { ...HYDRO_STYLES[styleKey()], stops: ANOMALY_STYLES[styleKey()], smooth: true, line: ANOMALY_LINE, lineWidth: 0.8 }
   : HYDRO_STYLES[styleKey()]);
-const hLabel = () => `${hstate.variable === "iso_depth" ? `Depth of σθ ${hstate.isopycnal}` : hVar().label}${hstate.anomaly ? " anomaly" : ""}`;
+// "… anomaly" goes before any qualifier after a comma ("Dynamic height anomaly, 0/500 dbar").
+const hLabel = () => {
+  const base = hstate.variable === "iso_depth" ? `Depth of σθ ${hstate.isopycnal}` : hVar().label;
+  return hstate.anomaly ? base.replace(/(,|$)/, " anomaly$1") : base;
+};
 const invMercatorY = (y) => (Math.atan(Math.exp((y * Math.PI) / 180)) * 360) / Math.PI - 90;
 const hVar = () => hmeta.variables[hstate.variable];
 const hData = () => hcache.get(hKey());
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
 const hSourceWord = () => (hSrcKey() === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units ? ` ${hVar().units}` : "");
-const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0,
+const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
   z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3);
 
 async function loadHydroMeta() {
@@ -1159,10 +1170,12 @@ function fillHydroVariables() {
     ? `<optgroup label="At a depth">${group(undefined).map(option).join("")}</optgroup>` +
       `<optgroup label="Derived">${group("derived").map(option).join("")}</optgroup>` +
       `<optgroup label="On isopycnals (CTD)">${group("isopycnal").map(plain).join("")}</optgroup>` +
-      `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>`
+      `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
+      `<optgroup label="Circulation">${group("dynamic").map(plain).join("")}</optgroup>`
     : hView() === "watermass"
       ? `<optgroup label="On isopycnals (CTD)">${group("isopycnal").map(plain).join("")}</optgroup>` +
-        `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>`
+        `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
+        `<optgroup label="Circulation">${group("dynamic").map(plain).join("")}</optgroup>`
       : group(VIEW_GROUPS[hView()][0]).map(option).join("");
   $("hydro-variable").value = hstate.variable;
 }
@@ -1194,7 +1207,11 @@ function fillHydroDepths() {
   $("hydro-depth").innerHTML = depths.map((d, i) => `<option value="${d}">${v.interval ? `${d}–${all[i + 1]} m` : `${d} m`}</option>`).join("");
   $("hydro-depth").value = String(hEffDepth());
   const [a, b] = hSrc().years;
-  $("hydro-iso-note").textContent = v.group === "fraction"
+  $("hydro-iso-note").textContent = v.group === "dynamic"
+    ? "CalCOFI's own dynamic height of the surface relative to 500 dbar (bottle: reported R_DYNHT; CTD: dynamic_height), " +
+      "from casts reaching 500 m. Like sea surface height, geostrophic flow runs along its contours, with higher values to the right in the northern hemisphere. " +
+      "CTD values run about 0.02 dyn m above the bottle values at the same casts."
+    : v.group === "fraction"
     ? "Share of each water mass, from an extended OMP analysis (Bograd, Schroeder & Jacox 2019) of temperature, salinity, " +
       "oxygen, phosphate, nitrate and silicate at each station and standard depth, 0–400 m; the three sum to 100%."
     : `Properties where each CTD downcast (${a}–${b}) crosses the surface, read from the profile itself; ` +

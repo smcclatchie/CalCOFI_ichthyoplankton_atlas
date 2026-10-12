@@ -28,7 +28,9 @@ extended OMP analysis after Bograd, Schroeder & Jacox 2019), and
 temperature, salinity, dissolved oxygen and depth on the
 σθ = 25.8 and 26.4 surfaces (about 100 m and 200 m), read from each CTD
 downcast's own profile, and opens the ternary plot of winter water-mass
-composition (OMP analysis) against warm- and cool-water indicator larvae.
+composition (OMP analysis) against warm- and cool-water indicator larvae. It
+also maps CalCOFI's 0/500 dbar dynamic height (bottle and CTD), whose
+anomalies are in the Anomalies view.
 
 The site is static (`docs/`) and is served by GitHub Pages. It uses
 [MapLibre GL JS](https://maplibre.org/) and a Natural Earth coastline; no map
