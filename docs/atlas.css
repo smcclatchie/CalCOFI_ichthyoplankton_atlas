@@ -127,7 +127,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   z-index: 2;
   top: 12px;
   right: 56px;
-  max-width: min(360px, calc(100% - 80px));
+  max-width: min(326px, calc(100% - 80px));   /* the colour bar (300 px) and the padding */
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -139,7 +139,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 }
 .map-label:empty { display: none; }
 /* CalCOFI logo: a brand label kept on land (see placeLogo in atlas.js). */
-.brand-logo { position: absolute; z-index: 2; width: 144px; height: 144px; pointer-events: none; border-radius: 4px; }
+.brand-logo { position: absolute; z-index: 2; width: 108px; height: 108px; pointer-events: none; border-radius: 4px; }
 .brand-logo[hidden] { display: none; }
 .map-label .when { display: block; font-size: 20px; font-weight: 600; color: var(--text-primary); }
 .map-label .species { display: block; font-weight: 600; color: var(--text-primary); }

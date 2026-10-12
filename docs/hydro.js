@@ -309,6 +309,23 @@ function hShownSeason() {
   return p ? SEASON_OF_MONTH[p.month] : null;
 }
 
+// The hydrography map shown, when it has casts but no ichthyoplankton tows
+// (this net and sampling), for an empty ichthyoplankton map at the same time
+// (atlas.js ghost); null otherwise.
+function hydroGhost() {
+  const periods = hShownPeriods();
+  if (!periods.length || ichthyoPeriodsForHydro().length) return null;
+  const stations = hSrc().stations;
+  const pts = [...hStationValues(periods).keys()].map((st) => stations[st]);
+  const t = hTime();
+  if (state.mode === "month") {
+    const x = hSrc().periods[periods[0]];
+    return { t, key: x.key, when: hPeriodText(periods[0]), stations: pts, word: hSourceWord() };
+  }
+  const step = hSteps[hstate.seasonPos];
+  return { t, season: step.season, year: step.year, when: seasonText(step), stations: pts, word: hSourceWord() };
+}
+
 // Ichthyoplankton survey months matching the hydrography map, for the overlay.
 function ichthyoPeriodsForHydro() {
   const keys = new Set(hShownPeriods().map((p) => hSrc().periods[p].key));
@@ -833,6 +850,9 @@ async function renderHydro() {
   const fishPeriods = showFish ? ichthyoPeriodsForHydro() : [];
   const fc = showFish ? features(fishPeriods, state.mode) : empty;
   map.getSource("stations").setData(fc);
+  // Casts without a tow (in the overlay): an open "no tow" ring.
+  const towed = new Set(fc.features.map((f) => meta.stations[f.properties.st].key));
+  setNoTow(showFish ? points.filter((q) => !towed.has(stations[q.st].key)).map((q) => [q.lon, q.lat]) : []);
   for (const id of ["zero", "catch-ring", "catch"]) map.setLayoutProperty(id, "visibility", showFish ? "visible" : "none");
   symbolStyle(true);
   map.getSource("selected").setData(empty);
@@ -896,9 +916,8 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
   if (showFish) {
     const t = state.taxon;
     const name = speciesHTML(t);
-    fish = fishPeriods.length
-      ? `<span class="bar-title">${name}, ${stageWord()} · ${meta.nets[state.net].code} net</span>${colourBar(300)}${multiNote()}`
-      : `<span class="bar-title">${name}: no ${meta.nets[state.net].code}-net tows in this ${state.mode === "season" ? "season" : "month"}</span>`;
+    fish = `<span class="bar-title">${name}, ${stageWord()} · ${meta.nets[state.net].code} net</span>${colourBar(300)}` +
+      (fishPeriods.length ? multiNote() : `<span class="map-note">${noTowText()}: the casts are shown as open circles.</span>`);
   }
   $("map-label").innerHTML = `<span class="when">${when}</span>${hydroWhat()}<br>Cruise${cruises.length > 1 ? "s" : ""} ${cruiseText}` +
     `<span class="bar-title">${hTitle()}</span>${hydroColourBar(300)}${anomalyNote()}${fish}`;

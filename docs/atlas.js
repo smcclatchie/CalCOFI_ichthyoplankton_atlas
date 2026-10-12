@@ -58,6 +58,12 @@ let occByPeriod;               // period index -> occupation row indices
 const taxonCache = new Map();  // taxon id -> Map(key -> abundance)
 let available = [];            // period indices sampled with the chosen sampling + net
 let playTimer = null;
+// A season or survey month with hydrography casts but no ichthyoplankton tows
+// (with this net and sampling), carried into the ichthyoplankton view from the
+// hydrography's time: shown as an empty map, the casts marked "no tow", until
+// the time is changed. {t (decimal year), season, year, key, when, stations: [{line, station, lon, lat}], word}
+let ghost = null;
+let noTowShown = 0;            // stations marked "no tow" on the map shown (legend entry when > 0)
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,6 +100,7 @@ function occupationRows(p) {
 }
 
 function updateAvailable() {
+  ghost = null;
   const set = new Set();
   for (let i = 0; i < occ.p.length; i++) {
     if (occ.s[i] === state.sampling && occ.n[i] === state.net) set.add(occ.p[i]);
@@ -203,6 +210,7 @@ const seasonMatches = (season) => state.season === "sequence" || state.season ==
 let seasonSteps = [];          // [{season, year}] with surveys, chronological, for the current net and sampling
 
 function updateSeasonSteps() {
+  ghost = null;
   const previous = seasonSteps[state.seasonPos];
   const keys = new Map();
   for (const p of available) {
@@ -244,12 +252,14 @@ const stepPos = () => (state.layer === "hydro"
   ? (state.mode === "month" ? hstate.periodPos : hstate.seasonPos)
   : (state.mode === "month" ? state.periodPos : state.seasonPos));
 function setStepPos(pos) {
+  if (state.layer !== "hydro") ghost = null;
   const st = state.layer === "hydro" ? hstate : state;
   if (state.mode === "month") st.periodPos = pos; else st.seasonPos = pos;
 }
 
 // Decimal year of the ichthyoplankton map shown, to carry the time across views.
 function ichthyoTime() {
+  if (ghost) return ghost.t;
   if (state.mode === "month") {
     const p = meta.periods[available[state.periodPos]];
     return p ? p.year + (p.month - 0.5) / 12 : null;
@@ -320,15 +330,19 @@ function render() {
   setHydroVisible(false);
   symbolStyle(false);
   for (const id of ["zero", "catch-ring", "catch", "selected"]) map.setLayoutProperty(id, "visibility", "visible");
-  const fc = features();
+  const fc = features(ghost ? [] : shownPeriods());
   map.getSource("stations").setData(fc);
+  setNoTow(ghost ? ghost.stations.map((q) => [q.lon, q.lat]) : []);
+  if (map.getSource("section-line")) map.getSource("section-line").setData({ type: "FeatureCollection", features: [] });   // sections: hydrography views only
   renderLineLabels(fc);
   const sampled = fc.features.length;
   const withCatch = fc.features.filter((f) => f.properties.a > 0).length;
 
   $("period-range").max = String(Math.max(0, stepList().length - 1));
   $("period-range").value = stepPos();
-  if (state.mode === "month") {
+  if (ghost) {
+    $("period-label").textContent = `${ghost.when}\n${noTowText()}; ${ghost.stations.length} ${ghost.word} stations with casts (open circles).`;
+  } else if (state.mode === "month") {
     const p = available[state.periodPos];
     const ships = available.length ? meta.periods[p].ships.map(titleCase).join(", ") : "";
     $("period-label").textContent = available.length
@@ -393,7 +407,7 @@ function renderLineLabels(fc) {
   if (meta.samplings[state.sampling] !== "standard") return;
   if (!lineAxes) lineAxes = computeLineAxes(meta.stations);
   if (!stationAxes) stationAxes = computeLineAxes(meta.stations, "station");
-  placeLineLabels(fc.features.map((f) => meta.stations[f.properties.st]), lineAxes, stationAxes);
+  placeLineLabels(ghost ? ghost.stations : fc.features.map((f) => meta.stations[f.properties.st]), lineAxes, stationAxes);
 }
 
 // Labels for stations [{line, station, lon, lat}] with line axes `axes` and
@@ -478,6 +492,12 @@ function renderMapLabel() {
   const net = meta.nets[state.net];
   const what = `<span class="species">${speciesHTML(t)}</span>` +
     `${titleCase(stageWord())} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
+  if (ghost) {
+    $("map-label").innerHTML = `<span class="when">${ghost.when}</span>${noTowText()}: ${ghost.stations.length} ${ghost.word} stations ` +
+      `with casts are shown as open circles.<br>${what}` +
+      `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}`;
+    return;
+  }
   if (state.mode === "month") {
     if (!available.length) { $("map-label").innerHTML = ""; return; }
     const period = meta.periods[available[state.periodPos]];
@@ -503,6 +523,20 @@ function multiNote() {
     `(${multiStations} station${multiStations > 1 ? "s" : ""}).</span>`;
 }
 
+// "No CB-net tows (standard sampling) in this season".
+function noTowText() {
+  return `No ${meta.nets[state.net].code}-net tows (${meta.samplings[state.sampling]} sampling) in this ${state.mode === "season" ? "season" : "month"}`;
+}
+
+// Stations [[lon, lat]] to mark "no tow": an open ring, dark on a white halo,
+// so it shows on the light sea and on any hydrography palette.
+const NO_TOW_RADIUS = 4.5;
+function setNoTow(stations) {
+  noTowShown = stations.length;
+  map.getSource("notow").setData({ type: "FeatureCollection",
+    features: stations.map((c) => ({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: {} })) });
+}
+
 function renderLegend() {
   $("legend-title").textContent = `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
   $("legend-items").innerHTML = colourBar(280);
@@ -517,16 +551,19 @@ function renderLegend() {
 // Legend: the grey "0" symbol, then the ten classes as the map draws them
 // (colour and size, on the dark disc), with the template's integer bounds as
 // ticks between them (1k = 1,000). Used in the side panel and the map label.
-function colourBar(width) {
-  const b = scaleBreaks, zeroW = 22, gap = 8, x0 = zeroW + gap;
+function colourBar(width, noTow = noTowShown > 0) {
+  const b = scaleBreaks, zeroW = noTow ? 58 : 22, gap = 8, x0 = zeroW + gap;
   const rMax = CLASSES[CLASSES.length - 1].radius + 1.3, top = 2, bh = 2 * rMax + 2, H = top + bh + 16;
   const bw = (width - x0 - 18) / CLASSES.length;   // right margin fits "300+"
   const cy = top + bh / 2;
   const label = (v) => (v >= 1000 ? `${v / 1000}k` : String(v));
   const last = b.length - 1;
   const parts = [
-    `<circle cx="${zeroW / 2 + 1}" cy="${cy}" r="${ZERO.radius}" fill="${ZERO.color}" stroke="${DISC}" stroke-width="0.6"/>`,
-    `<text x="${zeroW / 2 + 1}" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">0</text>`,
+    `<circle cx="12" cy="${cy}" r="${ZERO.radius}" fill="${ZERO.color}" stroke="${DISC}" stroke-width="0.6"/>`,
+    `<text x="12" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">0</text>`,
+    noTow ? `<circle cx="42" cy="${cy}" r="${NO_TOW_RADIUS}" fill="none" stroke="#ffffff" stroke-width="2.6"/>` +
+      `<circle cx="42" cy="${cy}" r="${NO_TOW_RADIUS}" fill="none" stroke="${DISC}" stroke-width="1.2"/>` +
+      `<text x="42" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">no tow</text>` : "",
     `<line x1="${x0}" x2="${x0 + bw * CLASSES.length}" y1="${top + bh}" y2="${top + bh}" stroke="#c9c7bf"/>`,
   ];
   CLASSES.forEach((c, i) => parts.push(
@@ -670,6 +707,7 @@ function renderStationChart(st = state.station) {
     }
     if (!best || Math.abs(sx(best.x) - px) > 12) return;
     stopPlay();
+    ghost = null;
     if (best.step) {
       state.seasonPos = seasonSteps.findIndex((s) => s.season === best.step.season && s.year === best.step.year);
     } else {
@@ -840,6 +878,7 @@ function setMode(mode) {
   // Keep the time shown when switching between By month and By season.
   const t = state.layer === "hydro" && hmeta && hData() ? hTime() : null;
   const ti = state.taxon ? ichthyoTime() : null;
+  ghost = null;
   state.mode = mode;
   if (t !== null) updateHydroSteps(t);
   if (ti !== null) setIchthyoTime(ti);
@@ -869,6 +908,7 @@ function setLayer(choice) {
   // The selected station carries across by its "line station" key.
   if (layer === "hydro") {
     hydroPendingTime = ichthyoTime();
+    ghost = null;
     if (hmeta && hData()) updateHydroSteps(hydroPendingTime);
     hstate.stationKey = state.station !== null ? meta.stations[state.station].key : null;
     state.station = null;
@@ -878,6 +918,7 @@ function setLayer(choice) {
     lastLabelled = null;
   } else {
     setIchthyoTime(hmeta && hData() ? hTime() : null);
+    ghost = hmeta && hData() ? hydroGhost() : null;
     const i = hstate.stationKey !== null ? meta.stations.findIndex((s) => s.key === hstate.stationKey) : -1;
     state.station = i >= 0 ? i : null;
     hstate.stationKey = null;
@@ -930,6 +971,17 @@ function updateStepTitle() {
 function step(delta) {
   const n = stepList().length;
   if (!n) return;
+  if (state.layer !== "hydro" && ghost) {
+    // From an untowed survey to the next (or previous) one with tows.
+    const times = state.mode === "month"
+      ? available.map((p) => meta.periods[p].year + (meta.periods[p].month - 0.5) / 12)
+      : seasonSteps.map((x) => seasonStart(x.season, x.year) + 1.5 / 12);
+    let pos = delta > 0 ? times.findIndex((t) => t > ghost.t) : times.findLastIndex((t) => t < ghost.t);
+    if (pos < 0) pos = delta > 0 ? 0 : n - 1;
+    setStepPos(pos);
+    render();
+    return;
+  }
   setStepPos((stepPos() + delta + n) % n);
   render();
 }
@@ -1084,6 +1136,7 @@ const shownKeys = () => {
     if (state.mode === "month") return new Set(ichthyoPeriodsForHydro());
     return new Set(hSteps.length ? [stepKey(hSteps[hstate.seasonPos])] : []);
   }
+  if (ghost) return new Set();
   return new Set(state.mode === "month"
     ? shownPeriods()
     : (seasonSteps.length ? [stepKey(seasonSteps[state.seasonPos])] : []));
@@ -1093,6 +1146,7 @@ const shownTimeText = () => {
     if (state.mode === "month") { const p = hShownPeriods()[0]; return p === undefined ? "" : hPeriodText(p); }
     return hSteps.length ? seasonText(hSteps[hstate.seasonPos]) : "";
   }
+  if (ghost) return ghost.when;
   return state.mode === "month" ? (available.length ? periodText(available[state.periodPos]) : "") : (seasonSteps.length ? seasonText() : "");
 };
 // Words for the distribution's units.
@@ -1368,6 +1422,7 @@ function renderHighCruises(high) {
     const c = cellOf(event);
     if (!c) return;
     stopPlay();
+    ghost = null;
     c.go();
     if (state.layer === "hydro") updateHydroSteps(ichthyoTime());
     render();
@@ -1397,6 +1452,7 @@ function renderHighCruises(high) {
 
 function goToSample(d) {
   stopPlay();
+  ghost = null;
   highSelected = { key: d.key, st: d.st };
   if (d.step) state.seasonPos = seasonSteps.findIndex((x) => stepKey(x) === d.key);
   else state.periodPos = available.indexOf(d.p);
@@ -1610,9 +1666,9 @@ function writeHash() {
   if (state.layer === "hydro") {
     params.set("layer", "hydro");
     writeHydroHash(params);
-  } else if (state.mode === "month" && available.length) params.set("survey", meta.periods[available[state.periodPos]].key);
+  } else if (state.mode === "month" && available.length) params.set("survey", ghost ? ghost.key : meta.periods[available[state.periodPos]].key);
   if (state.layer !== "hydro" && state.mode === "season" && seasonSteps.length) {
-    const { season, year } = seasonSteps[state.seasonPos];
+    const { season, year } = ghost || seasonSteps[state.seasonPos];
     params.set("season", state.season);
     if (state.season === "sequence") params.set("shown", season);
     params.set("year", year);
@@ -1664,7 +1720,40 @@ function symbolStyle(overHydro) {
 // the first place (beside the map label first) whose whole logo box is land and clear
 // of the map's panels, re-checked after every move or layout change. With no
 // land big enough in view it stays beside the map label.
-const LOGO_PX = 144, LOGO_MARGIN = 14;
+const LOGO_PX = 108, LOGO_MARGIN = 14;
+const DATA_LAYERS = ["zero", "catch", "notow", "hydro-stations"];
+const LABEL_DATA_MARGIN = 36;  // px around the label counted as covering data (the mapped field extends past its stations)
+
+// The map label goes in the map corner where it covers the least data (the
+// stations drawn, with a margin for the hydrography's field around them),
+// clear of the panels over the map; ties keep the preferred order: top right
+// (the land side), top left, bottom right, bottom left.
+function placeLabel() {
+  const el = $("map-label");
+  const r0 = el.getBoundingClientRect();
+  if (!r0.width) return;
+  const area = document.querySelector(".map-area").getBoundingClientRect();
+  const W = area.width, H = area.height, w = r0.width, h = r0.height;
+  const panels = ["left-panels", "station-panel", "section-panel"]
+    .map((id) => $(id).getBoundingClientRect())
+    .filter((r) => r.width > 0 && r.height > 0)
+    .map((r) => ({ l: r.left - area.left, t: r.top - area.top, r: r.right - area.left, b: r.bottom - area.top }));
+  const bottom = Math.min(H - 34, ...panels.filter((p) => p.t > H / 3).map((p) => p.t)) - 12;
+  const layers = DATA_LAYERS.filter((id) => map.getLayer(id) && map.getLayoutProperty(id, "visibility") !== "none");
+  const candidates = [[W - 56 - w, 12], [12, 12], [W - 56 - w, bottom - h], [12, bottom - h]];
+  let best = null;
+  candidates.forEach(([x, y], k) => {
+    if (x < 0 || y < 0) return;
+    if (panels.some((p) => x < p.r && x + w > p.l && y < p.b && y + h > p.t)) return;
+    const m = LABEL_DATA_MARGIN;
+    const n = layers.length ? map.queryRenderedFeatures([[Math.max(0, x - m), Math.max(0, y - m)], [Math.min(W, x + w + m), Math.min(H, y + h + m)]], { layers }).length : 0;
+    if (!best || n < best.n) best = { x, y, n, k };
+  });
+  const [x, y] = best ? [best.x, best.y] : candidates[0];
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.right = "auto";
+}
 let logoFrame = 0;
 
 function placeLogo() {
@@ -1672,6 +1761,7 @@ function placeLogo() {
   logoFrame = requestAnimationFrame(() => {
     const logo = $("brand-logo");
     if (!mapReady) return;
+    placeLabel();
     const area = document.querySelector(".map-area").getBoundingClientRect();
     const W = area.width, H = area.height;
     // Panels shown over the map (hidden or empty ones have no size).
@@ -1745,6 +1835,7 @@ function createMap() {
         land: { type: "geojson", data: `${DATA}land.geojson` },
         graticule: { type: "geojson", data: graticule() },
         stations: { type: "geojson", data: empty },
+        notow: { type: "geojson", data: empty },
         selected: { type: "geojson", data: empty },
       },
       layers: [
@@ -1755,6 +1846,14 @@ function createMap() {
         {
           id: "zero", type: "circle", source: "stations", filter: ["==", ["get", "cls"], -1],
           paint: { "circle-color": ZERO.color, "circle-radius": ZERO.radius, "circle-stroke-color": DISC, "circle-stroke-width": 0.6 },
+        },
+        {
+          id: "notow-halo", type: "circle", source: "notow",
+          paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": NO_TOW_RADIUS, "circle-stroke-color": "#ffffff", "circle-stroke-width": 2.6, "circle-stroke-opacity": 0.85 },
+        },
+        {
+          id: "notow", type: "circle", source: "notow",
+          paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": NO_TOW_RADIUS, "circle-stroke-color": DISC, "circle-stroke-width": 1.2 },
         },
         {
           id: "catch-ring", type: "circle", source: "stations", filter: [">=", ["get", "cls"], 0],
