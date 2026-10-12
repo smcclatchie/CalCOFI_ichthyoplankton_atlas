@@ -17,15 +17,16 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 // Magma on log10 abundance: purple (low) through red and orange to pale yellow
 // (high), perceptually uniform and colour-vision-deficiency safe; its
 // near-black end is left out so the lowest class shows against the symbols'
-// dark rim. Every catch symbol is the same size (colour alone carries
-// abundance) and sits on a dark disc with a thin white ring, so the high,
-// bright classes glow on any background and the low, dark ones stay visible on
-// dark palettes: the light sea or the hydrography's (see symbolStyle).
-// Zero catches are small and grey.
+// dark rim. Symbol size grows with the class too (radius 3 to 7 px), the
+// smaller drawn on top. Each sits on a dark disc with a thin white ring, so the
+// high, bright classes glow on any background and the low, dark ones stay
+// visible on dark palettes: the light sea or the hydrography's (see
+// symbolStyle). Zero catches are small and grey with a thin dark rim, the same
+// size on the hydrography and off it.
 // Ten classes; boundaries come from the colour-scale template (see SCALE_TEMPLATES).
 const CLASSES = ["#440f76", "#671b80", "#892881", "#ad347c", "#d2426f", "#ee5b5e", "#fb835f", "#feac76", "#fed597", "#fcfdbf"]
-  .map((color) => ({ color, radius: 5 }));
-const ZERO = { color: "#a9a7a0", radius: 2.2 };
+  .map((color, i) => ({ color, radius: 3 + (4 * i) / 9 }));
+const ZERO = { color: "#a9a7a0", radius: 2.4 };
 const OUTLINE = "rgba(31, 30, 28, 0.55)";
 const DISC = "#1f1e1c";        // the dark disc under each catch symbol
 const RING_PX = 1;             // the white ring around it
@@ -513,25 +514,27 @@ function renderLegend() {
     : `Floating: 0–${top}, covering 95% of this map's catches; colours compare within this map only.${over}`;
 }
 
-// Horizontal colour bar: grey "0" swatch, then the ten classes with the
-// template's integer bounds as ticks (1k = 1,000). Used in the side panel and
-// the map label.
+// Legend: the grey "0" symbol, then the ten classes as the map draws them
+// (colour and size, on the dark disc), with the template's integer bounds as
+// ticks between them (1k = 1,000). Used in the side panel and the map label.
 function colourBar(width) {
-  const b = scaleBreaks, H = 32, zeroW = 22, gap = 8, x0 = zeroW + gap;
-  const bw = (width - x0 - 18) / CLASSES.length, top = 2, bh = 12;   // right margin fits "300+"
+  const b = scaleBreaks, zeroW = 22, gap = 8, x0 = zeroW + gap;
+  const rMax = CLASSES[CLASSES.length - 1].radius + 1.3, top = 2, bh = 2 * rMax + 2, H = top + bh + 16;
+  const bw = (width - x0 - 18) / CLASSES.length;   // right margin fits "300+"
+  const cy = top + bh / 2;
   const label = (v) => (v >= 1000 ? `${v / 1000}k` : String(v));
   const last = b.length - 1;
   const parts = [
-    `<rect x="2" y="${top}" width="${zeroW - 4}" height="${bh}" rx="2" fill="${ZERO.color}"/>`,
+    `<circle cx="${zeroW / 2 + 1}" cy="${cy}" r="${ZERO.radius}" fill="${ZERO.color}" stroke="${DISC}" stroke-width="0.6"/>`,
     `<text x="${zeroW / 2 + 1}" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">0</text>`,
+    `<line x1="${x0}" x2="${x0 + bw * CLASSES.length}" y1="${top + bh}" y2="${top + bh}" stroke="#c9c7bf"/>`,
   ];
   CLASSES.forEach((c, i) => parts.push(
-    `<rect x="${x0 + i * bw}" y="${top}" width="${bw + 0.5}" height="${bh}" fill="${c.color}"/>`));
-  parts.push(`<rect x="${x0}" y="${top}" width="${bw * CLASSES.length}" height="${bh}" fill="none" stroke="${OUTLINE}" stroke-width="0.6"/>`);
+    `<circle cx="${x0 + (i + 0.5) * bw}" cy="${cy}" r="${c.radius + 0.65}" fill="${c.color}" stroke="${DISC}" stroke-width="1.3"/>`));
   // Ticks at every bound after 0 (the grey swatch already says 0).
   for (let k = 1; k < b.length; k++) {
     const x = x0 + k * bw;
-    parts.push(`<line x1="${x}" x2="${x}" y1="${top + bh}" y2="${top + bh + 3}" stroke="#85837c"/>`);
+    parts.push(`<line x1="${x}" x2="${x}" y1="${top + bh - 3}" y2="${top + bh + 3}" stroke="#85837c"/>`);
     const text = label(b[k]) + (k === last && scaleOverflow ? "+" : "");
     parts.push(`<text x="${x}" y="${top + bh + 12}" text-anchor="middle" font-size="10" fill="#5b5a55">${text}</text>`);
   }
@@ -623,10 +626,11 @@ function renderStationChart(st = state.station) {
     const xa = sx(start), w = Math.max(3, sx(start + 0.25) - xa);
     parts.push(`<rect x="${xa}" y="${m.t}" width="${w}" height="${H - m.t - m.b}" fill="#2a78d6" opacity="0.18"/>`);
   }
-  for (const d of series) {
+  // Colour and size as on the map (three-quarters scale), the smaller on top.
+  for (const d of series.slice().sort((p, q) => q.a - p.a)) {
     const cls = classOf(d.a);
     const color = cls < 0 ? ZERO.color : CLASSES[cls].color;
-    const r = cls < 0 ? 2 : 3.5;
+    const r = cls < 0 ? 2 : 0.75 * CLASSES[cls].radius;
     parts.push(`<circle cx="${sx(d.x)}" cy="${sy(y(d.a))}" r="${r}" fill="${color}" stroke="${cls < 0 ? "#fff" : OUTLINE}" stroke-width="0.6"/>`);
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Abundance through time at this station">${parts.join("")}</svg>`;
@@ -1169,27 +1173,28 @@ function renderHighCounts() {
   for (const v of [p95, 10 ** ((z0 + z1) / 2), sorted[sorted.length - 1]]) {
     parts.push(`<text x="${zx(lx(v))}" y="${Htot - 6}" text-anchor="middle" font-size="11" fill="#85837c">${fmt(v)}</text>`);
   }
-  // Beeswarm: left to right, each dot at the first level up from the strip's
-  // floor where it overlaps no dot already placed.
-  const R = 4.2, gap = 2 * R + 1, floor = zb - R - 2, top = zt + R + 2;
+  // Coloured and sized with the map's scale (set from this map's values; 0.8 of
+  // the map's size). Beeswarm: left to right, each dot at the first height up
+  // from the strip's floor where it overlaps no dot already placed.
+  features(highShownPeriods(), state.mode);
   dots.sort((p, q) => p.a - q.a);
   const placed = [];
   for (const d of dots) {
+    const cls = classOf(d.a);
+    d.r = cls < 0 ? 2 : 0.8 * CLASSES[cls].radius;
     d.zx = zx(lx(d.a));
-    let y = floor;
-    while (placed.some((q) => Math.abs(q.zx - d.zx) < gap && Math.abs(q.zy - y) < gap) && y - gap >= top) y -= gap;
+    let y = zb - d.r - 2;
+    while (placed.some((q) => Math.hypot(q.zx - d.zx, q.zy - y) < q.r + d.r + 1) && y - 1 >= zt + d.r + 2) y -= 1;
     d.zy = y;
     placed.push(d);
   }
-  // Coloured with the map's scale (set from this map's values).
-  features(highShownPeriods(), state.mode);
   const isSel = (d) => highSelected && highSelected.key === d.key && highSelected.st === d.st;
   for (const d of dots) {
     const cls = classOf(d.a);
     const fill = cls < 0 ? ZERO.color : CLASSES[cls].color;
     parts.push(isSel(d)
-      ? `<circle cx="${d.zx}" cy="${d.zy}" r="${R + 0.6}" fill="${fill}" stroke="${HIGH_SELECTED_COLOR}" stroke-width="2.2"/>`
-      : `<circle cx="${d.zx}" cy="${d.zy}" r="${R}" fill="${fill}" stroke="${OUTLINE}" stroke-width="0.7"/>`);
+      ? `<circle cx="${d.zx}" cy="${d.zy}" r="${d.r + 0.6}" fill="${fill}" stroke="${HIGH_SELECTED_COLOR}" stroke-width="2.2"/>`
+      : `<circle cx="${d.zx}" cy="${d.zy}" r="${d.r}" fill="${fill}" stroke="${OUTLINE}" stroke-width="0.7"/>`);
   }
   if (!dots.length) {
     parts.push(`<text x="${(m.l + W - m.r) / 2}" y="${(zt + zb) / 2 + 4}" text-anchor="middle" font-size="11" fill="#85837c">None in ${shownText || "this map"}</text>`);
@@ -1236,7 +1241,7 @@ function renderHighCounts() {
     `Zeros (${(samples - counts.length).toLocaleString()} ${highUnit(samples - counts.length)} with none caught) are not part of the distribution. ` +
     (!shownText ? "" : nInSurvey
       ? `${nInSurvey} station${nInSurvey > 1 ? "s" : ""} in ${shownText} reached the record's 95th percentile: the dots in the strip, ` +
-        `coloured as on the map (click one to select it). ${shownText} is outlined in the calendar.`
+        `coloured and sized as on the map (click one to select it). ${shownText} is outlined in the calendar.`
       : `No station in ${shownText} reached the record's 95th percentile. ${shownText} is outlined in the calendar.`);
   renderHighCruises(high);
 }
@@ -1647,13 +1652,10 @@ function readHash() {
 // hydrography's colours) inside a thin white ring, so the abundance colours
 // stand out on any palette, dark or light.
 function symbolStyle(overHydro) {
-  const disc = overHydro ? 2.5 : 1.6;
+  const disc = overHydro ? 1.8 : 1.3;
   map.setPaintProperty("catch", "circle-stroke-color", DISC);
   map.setPaintProperty("catch", "circle-stroke-width", disc);
   map.setPaintProperty("catch-ring", "circle-radius", ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius + disc]), ZERO.radius]);
-  map.setPaintProperty("zero", "circle-stroke-color", "#ffffff");
-  map.setPaintProperty("zero", "circle-stroke-width", overHydro ? 1.5 : 0);
-  map.setPaintProperty("zero", "circle-opacity", overHydro ? 1 : 0.8);
 }
 
 // ---------------------------------------------------------------- logo --
@@ -1752,15 +1754,16 @@ function createMap() {
         { id: "coast", type: "line", source: "land", paint: { "line-color": "#9a9890", "line-width": 0.6 } },
         {
           id: "zero", type: "circle", source: "stations", filter: ["==", ["get", "cls"], -1],
-          paint: { "circle-color": ZERO.color, "circle-radius": ZERO.radius, "circle-opacity": 0.8 },
+          paint: { "circle-color": ZERO.color, "circle-radius": ZERO.radius, "circle-stroke-color": DISC, "circle-stroke-width": 0.6 },
         },
         {
           id: "catch-ring", type: "circle", source: "stations", filter: [">=", ["get", "cls"], 0],
-          paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": CLASSES[0].radius + 1.6, "circle-stroke-color": "#ffffff", "circle-stroke-width": RING_PX },
+          layout: { "circle-sort-key": ["-", 0, ["get", "a"]] },
+          paint: { "circle-color": "rgba(0,0,0,0)", "circle-radius": CLASSES[0].radius + 1.3, "circle-stroke-color": "#ffffff", "circle-stroke-width": RING_PX },
         },
         {
           id: "catch", type: "circle", source: "stations", filter: [">=", ["get", "cls"], 0],
-          layout: { "circle-sort-key": ["get", "a"] },
+          layout: { "circle-sort-key": ["-", 0, ["get", "a"]] },     // the smaller on top
           paint: {
             "circle-color": ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.color]), ZERO.color],
             "circle-radius": ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius]), ZERO.radius],
