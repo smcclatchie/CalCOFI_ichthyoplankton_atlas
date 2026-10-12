@@ -824,7 +824,7 @@ function updateLayerControls() {
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
   renderHighCounts();   // the distribution panels stay open in both views
   document.querySelector(".subtitle").textContent = hydro
-    ? "Temperature, salinity and density from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    ? "Temperature, salinity, density, oxygen and nutrients from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
 }
 

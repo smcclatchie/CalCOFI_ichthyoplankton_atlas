@@ -13,7 +13,8 @@ which hold every selection and quality rule; this script only reshapes them:
   docs/data/hydro/<source>/<depth>.json   one file per source and standard
                                           depth, loaded on demand: station x
                                           survey month values of temperature,
-                                          salinity and sigma-theta
+                                          salinity, sigma-theta, oxygen,
+                                          nitrate and silicate
 
 As in the ichthyoplankton view, the atlas steps by survey month (year-month
 of the cast). Where a station was sampled more than once in a month, its
@@ -45,6 +46,9 @@ VARIABLES = {
     "temperature": {"label": "Temperature", "units": "°C", "column": "t", "decimals": 3},
     "salinity": {"label": "Salinity", "units": "", "column": "s", "decimals": 3},
     "sigma_theta": {"label": "Density (σθ)", "units": "kg m⁻³", "column": "d", "decimals": 3},
+    "oxygen": {"label": "Dissolved oxygen", "units": "ml L⁻¹", "column": "o", "decimals": 3},
+    "nitrate": {"label": "Nitrate", "units": "µM", "column": "no3", "decimals": 2},   # not "n": that key is the cast count
+    "silicate": {"label": "Silicate", "units": "µM", "column": "sio3", "decimals": 2},
 }
 
 
@@ -78,8 +82,7 @@ def build_source(key, path, label, out_dir):
 
     # station x survey month x depth means
     sm = (df.groupby(["period", "site_key", "depth_m"])
-            .agg(temperature=("temperature", "mean"), salinity=("salinity", "mean"),
-                 sigma_theta=("sigma_theta", "mean"), n=("cast", "nunique"))
+            .agg(**{v: (v, "mean") for v in VARIABLES}, n=("cast", "nunique"))
             .reset_index())
     os.makedirs(os.path.join(out_dir, key), exist_ok=True)
     depths = sorted(int(d) for d in sm.depth_m.unique())
@@ -87,6 +90,7 @@ def build_source(key, path, label, out_dir):
     for depth in depths:
         g = sm[sm.depth_m == depth].sort_values(["period", "site_key"])
         rec = {"p": [pidx[p] for p in g.period], "st": [sidx[s] for s in g.site_key], "n": g.n.astype(int).tolist()}
+        assert not {spec["column"] for spec in VARIABLES.values()} & set(rec), "variable column clashes with p/st/n"
         for v, spec in VARIABLES.items():
             vals = g[v].round(spec["decimals"])
             rec[spec["column"]] = [None if pd.isna(x) else float(x) for x in vals]

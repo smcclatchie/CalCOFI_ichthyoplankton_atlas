@@ -6,7 +6,8 @@
 //   meta.json                per source: survey months + cruises, stations,
 //                            fixed colour ranges (1st-99th percentiles)
 //   <source>/<depth>.json    station x survey month values: p, st, n (casts),
-//                            t, s, d (temperature, salinity, sigma-theta)
+//                            t, s, d, o, no3, sio3 (temperature, salinity,
+//                            sigma-theta, oxygen, nitrate, silicate)
 //
 // Mapping. Station values (the mean of the casts in the survey month, or of
 // the survey months in the season) are spread onto a grid as a Gaussian-
@@ -21,7 +22,8 @@
 // rainbow_bgyrm_35_85_c69, smooth fill, thin white contours, black land),
 // salinity as SSH (cmocean balance, filled bands, black contours, seagreen
 // land), sigma-theta as MLD (cmocean dense, smooth fill, white contours,
-// seagreen land). Fills are drawn at 85% opacity over black there, so the
+// seagreen land); oxygen, nitrate and silicate (no Fishing Maps layers) use
+// cmocean deep/matter/tempo in the same style. Fills are drawn at 85% opacity over black there, so the
 // palettes here are darkened to match. Contour labels are matplotlib-style
 // inline labels: in the line colour, along the line, with the line broken
 // around them.
@@ -46,6 +48,20 @@ const HYDRO_STYLES = {
   sigma_theta: {   // MLD: cmocean dense
     stops: ["#e6f1f1", "#c2dfe6", "#a2cee2", "#86b9e3", "#76a4e5", "#748be2", "#7871d5", "#7959c0", "#7642a5", "#6e2d84", "#621d62", "#4f1440", "#360e24"],
     smooth: true, line: "#ffffff", lineWidth: 1.1, land: "#2e8b57",
+  },
+  // No Fishing Maps counterparts (its chlorophyll map reuses the SST rainbow):
+  // cmocean palettes, their near-white ends trimmed so white contours read.
+  oxygen: {        // cmocean deep, reversed (low oxygen dark), 0-0.88
+    stops: ["#281a2c", "#342846", "#3d3564", "#414583", "#3e5992", "#3f6c96", "#437f9a", "#49929f", "#51a5a2", "#5bb8a4", "#71caa3", "#96daa4", "#bfe7ae"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  nitrate: {       // cmocean matter, 0.12-1
+    stops: ["#f9c38a", "#f6a975", "#f18f63", "#ea7657", "#e05e53", "#d24755", "#bf365b", "#a92861", "#921f63", "#791a61", "#5f185a", "#46144d", "#2f0f3e"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#2e8b57",
+  },
+  silicate: {      // cmocean tempo, 0.15-1
+    stops: ["#c9d4bf", "#aec7aa", "#91ba98", "#71ae8b", "#4ea183", "#29937f", "#13837b", "#137275", "#19616c", "#1c5062", "#1c4058", "#192f4d", "#151d44"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
 };
 const FILL_OPACITY_OVER_BLACK = 0.85;   // as the Fishing Maps fills
@@ -87,7 +103,7 @@ const hData = () => hcache.get(`${hstate.source}/${hstate.depth}`);
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
 const hSourceWord = () => (hstate.source === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units ? ` ${hVar().units}` : "");
-const hFmt = (v) => (hstate.variable === "temperature" ? v.toFixed(2) : v.toFixed(3));
+const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1 }[hstate.variable] ?? 3);
 
 async function loadHydroMeta() {
   if (!hmeta) hmeta = await getJSON("hydro/meta.json");
@@ -939,7 +955,7 @@ function writeHydroHash(params) {
 
 function readHydroHash(params) {
   if (params.get("src") in { bottle: 1, ctd: 1 }) hstate.source = params.get("src");
-  if (params.get("var") in { temperature: 1, salinity: 1, sigma_theta: 1 }) hstate.variable = params.get("var");
+  if (params.get("var") in HYDRO_STYLES) hstate.variable = params.get("var");
   if (params.has("depth")) hstate.depth = Number(params.get("depth")) || 50;
   if (params.get("hscale") in { all: 1, season: 1 }) hstate.scale = params.get("hscale");
   const cmp = (params.get("cmp") || "").split("-").map(Number);
