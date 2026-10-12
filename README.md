@@ -22,7 +22,10 @@ nitricline (steepest nitrate gradient), spiciness and N² (between standard
 depths), and, for CTD casts, CalCOFI's own chlorophyll-maximum and mixed
 layer depths. **Anomalies** maps any of these as departures from each
 station's climatology (calendar month or season, at least 20 years).
-**Water masses** maps temperature, salinity, dissolved oxygen and depth on the
+**Water masses** maps the fractions of Pacific Subarctic, Pacific Equatorial
+and North Pacific Central water at each station and standard depth (0–400 m;
+extended OMP analysis after Bograd, Schroeder & Jacox 2019), and
+temperature, salinity, dissolved oxygen and depth on the
 σθ = 25.8 and 26.4 surfaces (about 100 m and 200 m), read from each CTD
 downcast's own profile, and opens the ternary plot of winter water-mass
 composition (OMP analysis) against warm- and cool-water indicator larvae.

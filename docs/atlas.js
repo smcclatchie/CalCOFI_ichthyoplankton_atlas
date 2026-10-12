@@ -843,7 +843,7 @@ function updateLayerControls() {
   document.querySelectorAll(".watermass-only").forEach((e) => { e.hidden = !(hydro && hView() === "watermass"); });
   if (!(hydro && hView() === "watermass")) $("ternary-panel").hidden = true;
   document.querySelector(".subtitle").textContent = hydro && hView() === "watermass"
-    ? "Water masses: temperature, salinity and oxygen on the σθ 25.8 and 26.4 surfaces, from CalCOFI CTD casts (1993–2026)"
+    ? "Water masses: Pacific Subarctic, Pacific Equatorial and North Pacific Central water fractions (OMP), and properties on the σθ 25.8 and 26.4 surfaces"
     : hydro && hstate.derived && !hstate.anomaly
     ? "Derived variables from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts: isopycnal, nitricline, chlorophyll-maximum and mixed layer depths, spiciness, N²"
     : hydro && hstate.anomaly

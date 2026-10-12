@@ -71,7 +71,14 @@ DERIVED_CAST_VARIABLES = {
     "chl_max_depth": {"label": "Chlorophyll-maximum depth", "units": "m", "column": "chlz", "decimals": 1, "sources": ["ctd"]},
     "mld": {"label": "Mixed layer depth", "units": "m", "column": "mld", "decimals": 1, "sources": ["ctd"]},
 }
-DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES}
+# Water-mass fractions (OMP, the companion repo's build_water_mass_fractions.py),
+# percent, at the standard depths 0-400 m; shown in the Water masses view.
+FRACTION_VARIABLES = {
+    "wm_psa": {"label": "Pacific Subarctic water (PSA)", "units": "%", "column": "psa", "decimals": 1, "from": "PSA"},
+    "wm_pew": {"label": "Pacific Equatorial water (PEW)", "units": "%", "column": "pew", "decimals": 1, "from": "PEW"},
+    "wm_npcw": {"label": "North Pacific Central water (NPCW)", "units": "%", "column": "npcw", "decimals": 1, "from": "NPCW"},
+}
+DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES, **FRACTION_VARIABLES}
 # Water masses view: properties on two isopycnals, from CTD casts only
 # (the companion repo's build_isopycnal_properties.py), written to
 # ctd/iso<surface>.json.
@@ -96,6 +103,9 @@ def build_source(key, path, label, out_dir, src_dir):
     derived = os.path.join(src_dir, "CalCOFI_derived", f"calcofi_{key}_derived_{{}}.parquet")
     dd = con.sql(f"SELECT \"cast\", depth_m, spiciness, n2 FROM '{derived.format('depths')}'").df()
     df = df.merge(dd, on=["cast", "depth_m"], how="left")
+    fr = con.sql(f"""SELECT "cast", depth_m, PSA * 100 AS wm_psa, PEW * 100 AS wm_pew, NPCW * 100 AS wm_npcw
+                     FROM '{os.path.join(src_dir, "CalCOFI_water_masses", f"calcofi_{key}_water_mass_fractions.parquet")}'""").df()
+    df = df.merge(fr, on=["cast", "depth_m"], how="left")
     casts = con.sql(f"SELECT * FROM '{derived.format('casts')}' WHERE site_key IS NOT NULL").df()
     df["period"] = df.date.str[:7]
     # cruises: bottle has cruise_id + ship_name; CTD has cruise_key only
@@ -129,6 +139,8 @@ def build_source(key, path, label, out_dir, src_dir):
         rec = {"p": [pidx[p] for p in g.period], "st": [sidx[s] for s in g.site_key], "n": g.n.astype(int).tolist()}
         assert not {spec["column"] for spec in DEPTH_VARIABLES.values()} & set(rec), "variable column clashes with p/st/n"
         for v, spec in DEPTH_VARIABLES.items():
+            if g[v].isna().all():
+                continue                     # absent column = no data (the atlas fills it with nulls)
             vals = g[v].round(spec["decimals"])
             rec[spec["column"]] = [None if pd.isna(x) else float(x) for x in vals]
         out = os.path.join(out_dir, key, f"{depth}.json")
@@ -193,6 +205,8 @@ def main():
                    **({"sources": v["sources"]} if "sources" in v else {})} for k, v in DERIVED_CAST_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "isopycnal",
                    "style": v["style"], "sources": ["ctd"]} for k, v in ISOPYCNAL_VARIABLES.items()},
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "fraction", "maxDepth": 400}
+               for k, v in FRACTION_VARIABLES.items()},
         },
         "isopycnals": ISOPYCNALS,
         "sources": {},
