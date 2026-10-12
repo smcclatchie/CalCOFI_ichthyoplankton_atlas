@@ -780,9 +780,12 @@ function onFilterChange(keepPeriod = true) {
 
 function setMode(mode) {
   stopPlay();
+  // Keep the time shown when switching between By month and By season.
   const t = state.layer === "hydro" && hmeta && hData() ? hTime() : null;
+  const ti = state.taxon ? ichthyoTime() : null;
   state.mode = mode;
   if (t !== null) updateHydroSteps(t);
+  if (ti !== null) setIchthyoTime(ti);
   document.querySelectorAll("#view-toggle button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === mode)));
   $("season-controls").hidden = mode !== "season";
   updateStepTitle();
@@ -950,7 +953,6 @@ function setupControls() {
 // 95th percentile of all samples would often be 0.
 
 const HIGH_PERCENTILE = 0.95;
-const HIGH_DOT_COLOR = "#8f8e88";        // ring colour for top-5% samples not highlighted
 const HIGH_SELECTED_COLOR = "#d62728";   // the selected sample
 let highOpen = false;
 let highSelected = null;       // {key, st} of the dot last clicked
@@ -999,6 +1001,15 @@ function highCountData() {
   for (let i = 0; i < occ.p.length; i++) if (occ.s[i] === state.sampling && occ.n[i] === state.net) samples++;
   return { counts, samples };
 }
+
+// The ichthyoplankton survey months of the map shown (in the hydrography
+// view, those matching its month or season), for the strip's colours.
+const highShownPeriods = () => {
+  if (state.layer !== "hydro") return shownPeriods();
+  if (state.mode === "month") return ichthyoPeriodsForHydro();
+  const step = hSteps[hstate.seasonPos];
+  return step ? available.filter((p) => meta.periods[p].season === step.season && seasonYear(meta.periods[p]) === step.year) : [];
+};
 
 // What the map shows now, as distribution keys.
 // In the hydrography view: the ichthyoplankton survey months (or season) of the
@@ -1079,42 +1090,51 @@ function renderHighCounts() {
   parts.push(`<line x1="${xp}" x2="${xp}" y1="${m.t}" y2="${H - m.b}" stroke="#1f1e1c" stroke-dasharray="4 3"/>`);
   parts.push(`<text x="${xp - 4}" y="${m.t + 11}" text-anchor="end" font-size="11" fill="#1f1e1c">95th percentile</text>`);
 
-  const dots = high.map((c) => ({ ...c }));
-  // Zoomed strip: log axis from the 95th percentile to the maximum.
+  // Zoomed strip: log axis from the record's 95th percentile to its maximum
+  // (fixed, so positions compare from one time step to the next). Only the
+  // map shown has dots: its values at or above the 95th percentile, coloured
+  // with the map's own scale, as a beeswarm (dots pile up where values
+  // coincide, so the height shows how many share a value).
+  const shown = shownKeys();
+  const shownText = shownTimeText();
+  const dots = high.filter((d) => shown.has(d.key)).map((c) => ({ ...c }));
   const zt = H + 16, zb = Htot - 22;              // strip top / bottom
   const z0 = lx(p95), z1 = Math.max(lx(sorted[sorted.length - 1]), z0 + 0.01);
   const zx = (v) => m.l + ((v - z0) / (z1 - z0)) * (W - m.l - m.r);
   parts.push(`<rect x="${m.l}" y="${zt}" width="${W - m.l - m.r}" height="${zb - zt}" fill="#f6efe0"/>`);
   parts.push(`<line x1="${xp}" x2="${m.l}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
   parts.push(`<line x1="${sx(x1)}" x2="${W - m.r}" y1="${H - m.b}" y2="${zt}" stroke="#c9c7bf"/>`);
-  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">Top 5% ${highUnit()}: click a dot</text>`);
+  parts.push(`<text x="${m.l}" y="${zt - 4}" font-size="11" fill="#5b5a55">${shownText || "This map"}: values ≥ 95th percentile (click one)</text>`);
   for (const v of [p95, 10 ** ((z0 + z1) / 2), sorted[sorted.length - 1]]) {
     parts.push(`<text x="${zx(lx(v))}" y="${Htot - 6}" text-anchor="middle" font-size="11" fill="#85837c">${fmt(v)}</text>`);
   }
-  dots.forEach((d, i) => {
-    const jitter = ((Math.sin(i * 39.3467 + d.st * 11.135) * 24634.6345) % 1 + 1) % 1;
+  // Beeswarm: left to right, each dot at the first level up from the strip's
+  // floor where it overlaps no dot already placed.
+  const R = 4.2, gap = 2 * R + 1, floor = zb - R - 2, top = zt + R + 2;
+  dots.sort((p, q) => p.a - q.a);
+  const placed = [];
+  for (const d of dots) {
     d.zx = zx(lx(d.a));
-    d.zy = zt + 5 + jitter * (zb - zt - 10);
-  });
-
-  // Every sample as an empty grey ring; those from the survey shown on the map
-  // filled in the calendar's outline blue; the clicked sample filled red. Same
-  // size, drawn in that order so highlighted dots are never hidden, and the
-  // hollow rings let the filled ones stand out.
-  const shown = shownKeys();
-  const shownText = shownTimeText();
-  const isSel = (d) => highSelected && highSelected.key === d.key && highSelected.st === d.st;
-  const inSurvey = (d) => shown.has(d.key) && !isSel(d);
-  const nInSurvey = dots.filter((d) => shown.has(d.key)).length;
-  for (const d of [...dots.filter((x) => !isSel(x) && !inSurvey(x)), ...dots.filter(inSurvey), ...dots.filter(isSel)]) {
-    if (isSel(d) || inSurvey(d)) {
-      const fill = isSel(d) ? HIGH_SELECTED_COLOR : CRUISE_SELECTED_COLOR;
-      parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.5" fill="${fill}" stroke="#ffffff" stroke-width="0.8"/>`);
-    } else {
-      parts.push(`<circle cx="${d.zx}" cy="${d.zy}" r="3.1" fill="none" stroke="${HIGH_DOT_COLOR}" stroke-width="0.9"/>`);
-    }
+    let y = floor;
+    while (placed.some((q) => Math.abs(q.zx - d.zx) < gap && Math.abs(q.zy - y) < gap) && y - gap >= top) y -= gap;
+    d.zy = y;
+    placed.push(d);
   }
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts with the top 5% as clickable points">${parts.join("")}</svg>`;
+  // Coloured with the map's scale (set from this map's values).
+  features(highShownPeriods(), state.mode);
+  const isSel = (d) => highSelected && highSelected.key === d.key && highSelected.st === d.st;
+  for (const d of dots) {
+    const cls = classOf(d.a);
+    const fill = cls < 0 ? ZERO.color : CLASSES[cls].color;
+    parts.push(isSel(d)
+      ? `<circle cx="${d.zx}" cy="${d.zy}" r="${R + 0.6}" fill="${fill}" stroke="${HIGH_SELECTED_COLOR}" stroke-width="2.2"/>`
+      : `<circle cx="${d.zx}" cy="${d.zy}" r="${R}" fill="${fill}" stroke="${OUTLINE}" stroke-width="0.7"/>`);
+  }
+  if (!dots.length) {
+    parts.push(`<text x="${(m.l + W - m.r) / 2}" y="${(zt + zb) / 2 + 4}" text-anchor="middle" font-size="11" fill="#85837c">None in ${shownText || "this map"}</text>`);
+  }
+  const nInSurvey = dots.length;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${Htot}" role="img" aria-label="Distribution of non-zero counts, with this map's values at or above the 95th percentile as clickable points">${parts.join("")}</svg>`;
 
   const tip = document.createElement("div");
   tip.className = "chart-tip";
@@ -1152,11 +1172,11 @@ function renderHighCounts() {
     : "non-zero station-season values (one per station and season; the mean where a station was sampled in more than one month)";
   $("high-note").textContent =
     `${counts.length.toLocaleString()} ${what}; 95th percentile = ${fmt(p95)} ${unitsLabel()}. ` +
-    `${high.length.toLocaleString()} ${highUnit(high.length)} at or above it are shown as dots in the strip: click one to show its station and ${state.mode === "month" ? "survey" : "season"}. ` +
-    `Zeros (${(samples - counts.length).toLocaleString()} ${highUnit(samples - counts.length)} with none caught) are not part of the distribution.` +
+    `Zeros (${(samples - counts.length).toLocaleString()} ${highUnit(samples - counts.length)} with none caught) are not part of the distribution. ` +
     (!shownText ? "" : nInSurvey
-      ? ` ${shownText} (outlined in the calendar): ${nInSurvey} top-5% ${highUnit(nInSurvey)}, shown in blue.`
-      : ` ${shownText} (outlined in the calendar) has no top-5% ${highUnit()}.`);
+      ? `${nInSurvey} station${nInSurvey > 1 ? "s" : ""} in ${shownText} reached the record's 95th percentile: the dots in the strip, ` +
+        `coloured as on the map (click one to select it). ${shownText} is outlined in the calendar.`
+      : `No station in ${shownText} reached the record's 95th percentile. ${shownText} is outlined in the calendar.`);
   renderHighCruises(high);
 }
 

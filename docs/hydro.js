@@ -1110,7 +1110,9 @@ function setupHydroControls() {
   }));
   $("hydro-variable").addEventListener("change", (e) => {
     hydroPendingTime = hTime();
-    hstate.variable = e.target.value;
+    const [key, surface] = e.target.value.split("@");
+    hstate.variable = key;
+    if (surface) hstate.isopycnal = Number(surface);
     hstate.viewVars[hView()] = hstate.variable;
     fillHydroDepths();
     if (hData()) { updateHydroSteps(hydroPendingTime); hydroPendingTime = null; }
@@ -1166,19 +1168,23 @@ function fillHydroVariables() {
   const option = (k) => `<option value="${k}">${hmeta.variables[k].label}${hmeta.variables[k].sources ? " (CTD)" : ""}</option>`;
   const group = (g) => keys.filter((k) => hmeta.variables[k].group === g);
   const plain = (k) => `<option value="${k}">${hmeta.variables[k].label}</option>`;
+  // Isopycnal properties are listed once per surface ("Temperature, σθ 26.4"),
+  // as "variable@surface".
+  const iso = hmeta.isopycnals.map((sfc) => `<optgroup label="On σθ ${sfc} (CTD)">` +
+    group("isopycnal").map((k) => `<option value="${k}@${sfc}">${k === "iso_depth" ? `Depth of σθ ${sfc}` : `${hmeta.variables[k].label}, σθ ${sfc}`}</option>`).join("") +
+    "</optgroup>").join("");
   $("hydro-variable").innerHTML = hView() === "anomaly"
     ? `<optgroup label="At a depth">${group(undefined).map(option).join("")}</optgroup>` +
-      `<optgroup label="Derived">${group("derived").map(option).join("")}</optgroup>` +
-      `<optgroup label="On isopycnals (CTD)">${group("isopycnal").map(plain).join("")}</optgroup>` +
+      `<optgroup label="Derived">${group("derived").map(option).join("")}</optgroup>` + iso +
       `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
       `<optgroup label="Circulation">${group("dynamic").map(plain).join("")}</optgroup>`
     : hView() === "watermass"
-      ? `<optgroup label="On isopycnals (CTD)">${group("isopycnal").map(plain).join("")}</optgroup>` +
-        `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
+      ? iso + `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
         `<optgroup label="Circulation">${group("dynamic").map(plain).join("")}</optgroup>`
       : group(VIEW_GROUPS[hView()][0]).map(option).join("");
-  $("hydro-variable").value = hstate.variable;
+  $("hydro-variable").value = hMenuValue();
 }
+const hMenuValue = () => (isIso() ? `${hstate.variable}@${hstate.isopycnal}` : hstate.variable);
 
 // Switch the view, keeping the variable if the new view offers it, else the
 // view's last choice; nothing else changes.
@@ -1201,7 +1207,7 @@ function fillHydroDepths() {
   const depths = v.interval ? all.slice(0, -1) : v.maxDepth ? all.filter((d) => d <= v.maxDepth) : all;
   if (!all.includes(hstate.depth)) hstate.depth = all.reduce((a, b) => (Math.abs(b - hstate.depth) < Math.abs(a - hstate.depth) ? b : a));
   $("hydro-depth-box").hidden = Boolean(v.perCast) || isIso();
-  $("hydro-iso-box").hidden = !isIso();
+  $("hydro-iso-box").hidden = true;     // the surface is chosen in the variable menu
   $("hydro-source-box").hidden = state.layer !== "hydro" || isIso();
   $("hydro-iso").value = String(hstate.isopycnal);
   $("hydro-depth").innerHTML = depths.map((d, i) => `<option value="${d}">${v.interval ? `${d}–${all[i + 1]} m` : `${d} m`}</option>`).join("");
