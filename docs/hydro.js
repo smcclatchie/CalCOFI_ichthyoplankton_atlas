@@ -33,7 +33,6 @@ const HYDRO = "data/hydro/";
 const MAX_GAP_KM = 70;
 const GRID_MARGIN_DEG = 1.0;       // > MAX_GAP_KM, so the grid's edges are always masked
 const GRID_MAX_CELLS = 230;        // along the longer side
-const SMOOTHING_KM = [50, 75, 100, 125];
 const MASK_COLOR = "#f3f6f9";      // the map's ocean colour
 // Palette stops sampled from the Fishing Maps colormaps (13 per map).
 const HYDRO_STYLES = {
@@ -152,7 +151,7 @@ const hstate = {
   depth: 50,
   scale: "floating",     // "floating" | "all" (fixed, all seasons) | "season" (fixed, this season)
   compare: null,         // [first, last] years whose maps the fixed scale spans
-  smoothing: 75,         // km
+  smoothing: 75,         // km, the Gaussian mapping's e-folding scale (fixed; the user chose 75 km)
   overlay: false,        // ichthyoplankton on top
   periodPos: 0,          // position within hAvailable
   seasonPos: 0,          // position within hSteps
@@ -226,8 +225,7 @@ async function loadHydroMeta() {
   return hmeta;
 }
 
-async function loadHydroDepth() {
-  const key = hKey();
+async function loadHydroDepth(key = hKey()) {
   if (!hcache.has(key)) {
     const d = await getJSON(`hydro/${key}.json`);
     // Variables a file lacks (e.g. CalCOFI's CTD-only depths in the bottle
@@ -273,15 +271,7 @@ function updateHydroSteps(target = hTime()) {
   const set = new Set();
   for (let i = 0; i < d.p.length; i++) if (d[col][i] !== null) set.add(d.p[i]);
   hAvailable = [...set].sort((a, b) => a - b);
-  const keys = new Map();
-  for (const p of hAvailable) {
-    const x = periods[p];
-    const season = SEASON_OF_MONTH[x.month];
-    if (!seasonMatches(season)) continue;
-    const step = { season, year: x.year + (x.month === 12 ? 1 : 0) };
-    keys.set(`${step.year}-${SEASONS.indexOf(season)}`, step);
-  }
-  hSteps = [...keys.values()].sort((a, b) => seasonStart(a.season, a.year) - seasonStart(b.season, b.year));
+  hSteps = surveySteps();          // the same seasons as the ichthyoplankton view (atlas.js)
   const t = target ?? Infinity;
   const nearest = (list, time) => list.reduce((best, x, i) => (Math.abs(time(x) - t) < Math.abs(time(list[best]) - t) ? i : best), 0);
   if (hAvailable.length) hstate.periodPos = nearest(hAvailable, (p) => periods[p].year + (periods[p].month - 0.5) / 12);
@@ -313,6 +303,7 @@ function hShownSeason() {
 // (this net and sampling), for an empty ichthyoplankton map at the same time
 // (atlas.js ghost); null otherwise.
 function hydroGhost() {
+  if (state.mode === "season") return null;       // seasons are shared steps (see seasonGhost)
   const periods = hShownPeriods();
   if (!periods.length || ichthyoPeriodsForHydro().length) return null;
   const stations = hSrc().stations;
@@ -324,6 +315,27 @@ function hydroGhost() {
   }
   const step = hSteps[hstate.seasonPos];
   return { t, season: step.season, year: step.year, when: seasonText(step), stations: pts, word: hSourceWord() };
+}
+
+// Stations with casts in a season, from the hydrography's source if it has
+// any that season, else the other: {stations, word}. Reads the source's
+// surface file (loading it the first time, then redrawing).
+function seasonCasts(step) {
+  const first = hSrcKey(), order = [first, first === "ctd" ? "bottle" : "ctd"];
+  for (const src of order) {
+    const S = hmeta.sources[src], word = src === "ctd" ? "CTD" : "bottle";
+    const ps = S.periods.map((x, i) => (SEASON_OF_MONTH[x.month] === step.season && x.year + (x.month === 12 ? 1 : 0) === step.year ? i : -1)).filter((i) => i >= 0);
+    if (!ps.length) continue;
+    const key = `${src}/0`;
+    if (!hcache.has(key)) {
+      loadHydroDepth(key).then(() => { if (state.layer !== "hydro") render(); });
+      return { stations: [], word };
+    }
+    const d = hcache.get(key), st = new Set();
+    for (const p of ps) for (const i of d.byPeriod.get(p) || []) st.add(d.st[i]);
+    return { stations: [...st].map((i) => S.stations[i]), word };
+  }
+  return { stations: [], word: hSourceWord() };
 }
 
 // Ichthyoplankton survey months matching the hydrography map, for the overlay.
@@ -658,7 +670,7 @@ function fieldImage(f, scale) {
   const south = invMercatorY(f.y0 - f.step / 2), north = invMercatorY(f.y0 + (f.ny - 0.5) * f.step);
   return { url: canvas.toDataURL(), coordinates: [[west, north], [east, north], [east, south], [west, south]] };
 }
-const BLANK_IMAGE = { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+const BLANK_IMAGE = { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=",
   coordinates: [[-130, 35], [-129, 35], [-129, 34], [-130, 34]] };
 
 // ------------------------------------------------------- contour labels --
@@ -846,7 +858,8 @@ async function renderHydro() {
 
   // Ichthyoplankton overlay: the matching survey month(s) for the chosen
   // species, stage, net and sampling.
-  const showFish = hstate.overlay && state.taxon && taxonCache.has(state.taxon.id);
+  // A season without casts (for this variable and depth) shows its tows, overlay or not.
+  const showFish = (hstate.overlay || !periods.length) && state.taxon && taxonCache.has(state.taxon.id);
   const fishPeriods = showFish ? ichthyoPeriodsForHydro() : [];
   const fc = showFish ? features(fishPeriods, state.mode) : empty;
   map.getSource("stations").setData(fc);
@@ -861,13 +874,14 @@ async function renderHydro() {
   const list = state.mode === "month" ? hAvailable : hSteps;
   $("period-range").max = String(Math.max(0, list.length - 1));
   $("period-range").value = state.mode === "month" ? hstate.periodPos : hstate.seasonPos;
-  const when = !periods.length ? "" : state.mode === "month" ? hPeriodText(periods[0]) : seasonText(hSteps[hstate.seasonPos]);
+  const when = state.mode === "season" ? (hSteps.length ? seasonText(hSteps[hstate.seasonPos]) : "") : !periods.length ? "" : hPeriodText(periods[0]);
   const casts = points.reduce((a, q) => a + q.casts, 0);
   $("period-label").textContent = periods.length
     ? `${when}\n${state.mode === "season" ? `${periods.length > 1 ? "Survey months" : "Survey month"} ${periods.map(hPeriodText).join(", ")} · ` : ""}${points.length} stations, ${casts} casts`
-    : hVar().sources && !hVar().sources.includes(hSrcKey())
+    : (when ? `${when}\n` : "") + (hVar().sources && !hVar().sources.includes(hSrcKey())
       ? `${hVar().label} comes from CTD casts only (CalCOFI's values): choose the CTD source.`
-      : `No ${hSourceWord()} data for this ${state.mode === "season" && state.season !== "sequence" ? "season" : "selection"}.`;
+      : `No ${hSourceWord()} data for this ${state.mode === "season" ? "season" : "selection"}` +
+        (fc.features.length ? `; ${fc.features.length} ichthyoplankton stations shown.` : "."));
   renderHydroMapLabel(when, periods, showFish, fishPeriods, fc);
   renderHydroLegend();
   if (showFish) renderLegend();
@@ -908,7 +922,17 @@ function hydroWhat() {
 }
 
 function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
-  if (!periods.length) { $("map-label").innerHTML = `<span class="when">${hydroWhat()}</span>No data`; return; }
+  if (!periods.length) {
+    // No casts with this variable and depth: say so, and show the tows.
+    const none = hVar().sources && !hVar().sources.includes(hSrcKey())
+      ? `${hVar().label} comes from CTD casts only: choose the CTD source.`
+      : `No ${hSourceWord()} data for ${lowerFirst(hTitle())} in this ${state.mode === "season" ? "season" : "month"}.`;
+    const fish = showFish && fishPeriods.length
+      ? `<span class="bar-title">${speciesHTML(state.taxon)}, ${stageWord()} · ${meta.nets[state.net].code} net</span>${colourBar(300)}${multiNote()}`
+      : "";
+    $("map-label").innerHTML = `<span class="when">${when || hydroWhat()}</span>${none}${fish}`;
+    return;
+  }
   const cruises = [...new Map(periods.flatMap((p) => hSrc().periods[p].cruises).map((c) => [c.key, c])).values()]
     .map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`);
   const cruiseText = cruises.length > 4 ? `${cruises.slice(0, 4).join(", ")} and ${cruises.length - 4} more` : cruises.join(", ");
@@ -1180,7 +1204,6 @@ function setupHydroControls() {
     $("ternary-open").setAttribute("aria-pressed", String(!panel.hidden));
   });
   $("ternary-close").addEventListener("click", () => { $("ternary-panel").hidden = true; $("ternary-open").setAttribute("aria-pressed", "false"); });
-  $("hydro-smoothing").addEventListener("change", (e) => { hstate.smoothing = Number(e.target.value); render(); });
   document.querySelectorAll("#chart-toggle button").forEach((b) => b.addEventListener("click", () => {
     hstate.chart = b.dataset.value;
     renderHydroChart();
@@ -1204,9 +1227,6 @@ function setupHydroControls() {
   $("hydro-compare-to").addEventListener("change", compare);
   fillHydroVariables();
   setupSectionControls();
-  fillSelect($("hydro-smoothing"), SMOOTHING_KM.map((k) => `${k} km${k === 75 ? " (default)" : ""}`), 0);
-  [...$("hydro-smoothing").options].forEach((o, i) => { o.value = SMOOTHING_KM[i]; });
-  $("hydro-smoothing").value = hstate.smoothing;
   $("hydro-overlay").checked = hstate.overlay;
   setToggle("hydro-source", hstate.source);
   fillHydroDepths();
@@ -1289,7 +1309,6 @@ function writeHydroHash(params) {
   if (isIso()) params.set("iso", hstate.isopycnal);
   if (hstate.scale !== "floating") params.set("hscale", hstate.scale);
   if (hstate.scale !== "floating" && hstate.compare) params.set("cmp", hstate.compare.join("-"));
-  if (hstate.smoothing !== 75) params.set("L", hstate.smoothing);
   if (hstate.overlay) params.set("overlay", "1");
   if (hstate.stationKey !== null) params.set("hst", hstate.stationKey);
   if (hstate.chart === "hydro") params.set("chart", "hydro");
@@ -1317,7 +1336,6 @@ function readHydroHash(params) {
   if (params.get("hscale") in { all: 1, season: 1 }) hstate.scale = params.get("hscale");
   const cmp = (params.get("cmp") || "").split("-").map(Number);
   if (cmp.length === 2 && cmp.every(Number.isFinite)) hstate.compare = [Math.min(...cmp), Math.max(...cmp)];
-  if (SMOOTHING_KM.includes(Number(params.get("L")))) hstate.smoothing = Number(params.get("L"));
   hstate.overlay = params.get("overlay") === "1";
   if (["hydro", "derived", "anomaly", "watermass"].includes(params.get("layer")) && params.has("hst")) hstate.stationKey = params.get("hst");
   // The time to open on.

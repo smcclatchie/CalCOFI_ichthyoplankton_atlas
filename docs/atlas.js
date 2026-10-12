@@ -207,19 +207,27 @@ const seasonYear = (period) => period.year + (period.month === 12 ? 1 : 0);
 // Decimal year at which a season starts (winter 1998 -> Dec 1997).
 const seasonStart = (season, year) => (season === "winter" ? year - 1 + 11 / 12 : year + (SEASON_FIRST_MONTH[season] - 1) / 12);
 const seasonMatches = (season) => state.season === "sequence" || state.season === season;
-let seasonSteps = [];          // [{season, year}] with surveys, chronological, for the current net and sampling
+let seasonSteps = [];          // [{season, year}] with surveys, chronological (see surveySteps)
+
+// The seasons both views step through: every season with a survey of either
+// kind -- ichthyoplankton tows with this net and sampling, or hydrographic
+// casts from either source -- so the two views walk the same seasons and each
+// map shows what was sampled (an untowed season's casts as "no tow" rings in
+// the ichthyoplankton view; an uncast season's tows in the hydrography view).
+function surveySteps() {
+  const keys = new Map();
+  const add = (season, year) => {
+    if (seasonMatches(season)) keys.set(`${year}-${SEASONS.indexOf(season)}`, { season, year });
+  };
+  for (const p of available) add(meta.periods[p].season, seasonYear(meta.periods[p]));
+  if (hmeta) for (const src of Object.values(hmeta.sources)) for (const x of src.periods) add(SEASON_OF_MONTH[x.month], x.year + (x.month === 12 ? 1 : 0));
+  return [...keys.values()].sort((a, b) => seasonStart(a.season, a.year) - seasonStart(b.season, b.year));
+}
 
 function updateSeasonSteps() {
   ghost = null;
   const previous = seasonSteps[state.seasonPos];
-  const keys = new Map();
-  for (const p of available) {
-    const period = meta.periods[p];
-    if (!seasonMatches(period.season)) continue;
-    const step = { season: period.season, year: seasonYear(period) };
-    keys.set(`${step.year}-${SEASONS.indexOf(step.season)}`, step);
-  }
-  seasonSteps = [...keys.values()].sort((a, b) => seasonStart(a.season, a.year) - seasonStart(b.season, b.year));
+  seasonSteps = surveySteps();
   if (!seasonSteps.length) { state.seasonPos = 0; return; }
   // Keep the time shown (or the nearest) when the season choice, net or sampling changes.
   const last = seasonSteps[seasonSteps.length - 1];
@@ -330,6 +338,8 @@ function render() {
   setHydroVisible(false);
   symbolStyle(false);
   for (const id of ["zero", "catch-ring", "catch", "selected"]) map.setLayoutProperty(id, "visibility", "visible");
+  // A season without tows: its casts, as an empty map (see seasonGhost).
+  if (state.mode === "season") ghost = seasonPeriods().length ? null : seasonGhost();
   const fc = features(ghost ? [] : shownPeriods());
   map.getSource("stations").setData(fc);
   setNoTow(ghost ? ghost.stations.map((q) => [q.lon, q.lat]) : []);
@@ -521,6 +531,16 @@ function multiNote() {
   if (state.mode !== "season" || !multiStations) return "";
   return `<span class="map-note">Mean of the survey months where a station was sampled more than once ` +
     `(${multiStations} station${multiStations > 1 ? "s" : ""}).</span>`;
+}
+
+// The season shown, when it has casts but no tows: as the ghost map, with the
+// season's cast stations (the hydrography's source first, else the other).
+function seasonGhost() {
+  const step = seasonSteps[state.seasonPos];
+  if (!step || !hmeta) return null;
+  const c = seasonCasts(step);
+  return { t: seasonStart(step.season, step.year) + 1.5 / 12, season: step.season, year: step.year,
+    when: seasonText(step), stations: c.stations, word: c.word };
 }
 
 // "No CB-net tows (standard sampling) in this season".
@@ -870,6 +890,7 @@ function onFilterChange(keepPeriod = true) {
     state.periodPos = Math.min(state.periodPos, Math.max(0, available.length - 1));
   }
   updateSeasonSteps();
+  if (hmeta && hData()) updateHydroSteps();    // the shared seasons depend on the net and sampling
   render();
 }
 
@@ -1333,6 +1354,7 @@ function calendarCells() {
   } else {
     const seasonRows = SEASONS.filter(seasonMatches);
     seasonSteps.forEach((step, i) => {
+      if (!seasonPeriods(step).length) return;     // casts only: no tows to show
       cells.push({
         key: stepKey(step), year: step.year, row: seasonRows.indexOf(step.season), season: step.season, text: seasonText(step),
         cruises: seasonPeriods(step).flatMap((p) => meta.periods[p].cruises),

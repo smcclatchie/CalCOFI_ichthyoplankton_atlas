@@ -308,7 +308,7 @@ async function renderSection() {
   }
   const d = scache.get(sKey()), geo = lineGeometry(d), v = sVar();
   const periods = hShownPeriods();
-  const when = !periods.length ? "" : state.mode === "month" ? hPeriodText(periods[0]) : seasonText(hSteps[hstate.seasonPos]);
+  const when = state.mode === "season" ? (hSteps.length ? seasonText(hSteps[hstate.seasonPos]) : "") : !periods.length ? "" : hPeriodText(periods[0]);
   $("section-title").textContent = `Line ${sstate.line} — ${v ? v.label : hLabel()} · ${when} · ${hSrc().label}`;
   if (geo) {
     const coords = geo.stations.slice().sort((a, b) => geo.x.get(a.i) - geo.x.get(b.i)).map((s) => [s.lon, s.lat]);
