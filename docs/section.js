@@ -4,12 +4,12 @@
 // (or stability N2, or geostrophic velocity); in the Water masses view, the
 // map's water-mass fraction.
 //
-// The section's horizontal axis is tied to the map's: offshore to the left,
-// the coast to the right, at the map's own scale along the line (the line runs
-// roughly straight in the map's projection, so position along it maps linearly
-// to screen x), so the section zooms and pans with the map. It never shrinks
-// below filling its panel (at a low zoom the whole line fills it, coast at
-// the right edge), and never pans past either end of the line.
+// The section's horizontal axis has the map's scale along the line (the line
+// runs roughly straight in the map's projection, so position along it maps
+// linearly to screen x): the distance between any two stations is the same
+// width on both, whatever the map's position, so the section widens and
+// narrows as the map zooms. Offshore is to the left, the coast at the right
+// edge of the plot.
 //
 // Data (docs/data/hydro/<source>/line<L>.json, build_hydro_data.py): station x
 // survey month x standard-depth means: p, st, z (depth index), n, t, s, d
@@ -327,20 +327,19 @@ function showSectionMessage(text) {
 function drawSection() {
   if (!sCur || !sectionShown()) return;
   const { v, geo, scale, grid, labels } = sCur;
-  const box = $("section-chart"), mapRect = map.getContainer().getBoundingClientRect(), boxRect = box.getBoundingClientRect();
+  const box = $("section-chart");
   const W = box.clientWidth || 600, H = Math.max(140, (box.clientHeight || 260) - 30);   // less the note lines
   const m = { l: 46, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
-  // linear fit: screen x (relative to this box) against distance along the line
-  const pts = geo.stations.map((s) => [geo.x.get(s.i), map.project([s.lon, s.lat]).x + mapRect.left - boxRect.left]);
+  // the map's horizontal scale along the line (screen x against distance along
+  // it, fitted over the stations), not its position: the section is as wide as
+  // the line is across the map, coast at the plot's right edge, offshore end
+  // clipped if the map is zoomed in past the panel's width
+  const pts = geo.stations.map((s) => [geo.x.get(s.i), map.project([s.lon, s.lat]).x]);
   const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
   const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
-  // the map's scale and position, kept within the plot: at least the whole line
-  // across it, coast at the right edge; zoomed in, panning with the map but
-  // never past either end of the line
-  const L = m.l, R = W - m.r, fit = (R - L) / geo.xmax;
-  let b = -Math.abs(sxx > 0 ? sxy / sxx : fit), a0 = my - b * mx;
-  if (-b <= fit) { b = -fit; a0 = R; }
-  else a0 = Math.min(Math.max(a0, R), L - b * geo.xmax);
+  const R = W - m.r, maxW = R - m.l;
+  const b = -Math.abs(sxx > 0 ? sxy / sxx : maxW / geo.xmax), a0 = R;
+  m.l = R - Math.min(maxW, -b * geo.xmax);
   const px = (km) => a0 + b * km, py = (z) => m.t + (z / SECTION_DEPTH) * ph;
   const path = (rings) => rings.map((r) => "M" + r.map(([x, z]) => `${x.toFixed(2)},${py(z).toFixed(1)}`).join("L")).join("");
   const font = 'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"';
@@ -372,7 +371,7 @@ function drawSection() {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
     parts.push(`<text x="${m.l - 6}" y="${py(z) + 4}" text-anchor="end" ${tick} ${font}>${z}</text>`);
   }
-  parts.push(`<text transform="translate(12 ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${tick} ${font}>depth (m)</text>`);
+  parts.push(`<text transform="translate(${m.l - 34} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${tick} ${font}>depth (m)</text>`);
   // distance (bottom)
   const step = Math.abs(b) * 100 < 40 ? 200 : 100;
   for (let km = 0; km <= geo.xmax; km += step) {
@@ -458,8 +457,8 @@ function addSectionLayers() {
   map.addSource("section-line", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({ id: "section-line", type: "line", source: "section-line",
     paint: { "line-color": "#1f1e1c", "line-width": 3, "line-opacity": 0.75, "line-dasharray": [2, 1] } }, "zero");
-  // The section follows the map: redraw it as the map pans and zooms.
-  map.on("move", () => {
+  // The section takes the map's scale: redraw it as the map zooms.
+  map.on("zoom", () => {
     if (!sCur) return;
     cancelAnimationFrame(sFrame);
     sFrame = requestAnimationFrame(drawSection);
