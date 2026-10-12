@@ -135,7 +135,9 @@ const hstate = {
   stationKey: null,      // selected station "line station" (shared with the ichthyoplankton view)
   anomaly: false,        // the Anomalies view: departures from each station's climatology
   derived: false,        // the Derived variables view
-  viewVars: { hydro: "temperature", derived: "z_sigma25", anomaly: "temperature" },   // each view's last variable
+  watermass: false,      // the Water masses view (properties on isopycnals, CTD)
+  isopycnal: 25.8,       // the sigma-theta surface shown there
+  viewVars: { hydro: "temperature", derived: "z_sigma25", watermass: "iso_temperature", anomaly: "temperature" },   // each view's last variable
 };
 let hmeta = null;
 const hcache = new Map();      // "source/depth" -> data
@@ -148,14 +150,18 @@ let hLabelMarkers = [];        // contour-label markers
 let hLineAxesCache = new Map(); // source -> CalCOFI line axes from its stations
 let hLoadToken = 0;
 
-const hSrc = () => hmeta.sources[hstate.source];
+// Isopycnal (Water masses) variables come from CTD casts only: they use the
+// CTD source without changing the source chosen for the other views.
+const hSrcKey = () => (hmeta.variables[hstate.variable]?.group === "isopycnal" ? "ctd" : hstate.source);
+const hSrc = () => hmeta.sources[hSrcKey()];
 // The view within the hydrography machinery: "hydro" (at a depth), "derived"
-// (derived variables) or "anomaly" (departures from climatology, of either).
-const hView = () => (hstate.anomaly ? "anomaly" : hstate.derived ? "derived" : "hydro");
-const viewAllows = (key, view = hView()) => {
-  const v = hmeta.variables[key];
-  return view === "anomaly" || (view === "derived") === (v.group === "derived");
-};
+// (derived variables), "watermass" (properties on isopycnals) or "anomaly"
+// (departures from climatology, of any of them).
+const hView = () => (hstate.anomaly ? "anomaly" : hstate.derived ? "derived" : hstate.watermass ? "watermass" : "hydro");
+const VIEW_GROUP = { hydro: undefined, derived: "derived", watermass: "isopycnal" };
+const viewAllows = (key, view = hView()) => view === "anomaly" || hmeta.variables[key].group === VIEW_GROUP[view];
+const isIso = () => hVar().group === "isopycnal";
+const TERNARY_URL = "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0";
 // The depth used: per-cast derived variables have no depth ("cast" file); N2
 // is per interval, so the deepest standard depth falls back to the last interval.
 function hEffDepth() {
@@ -163,25 +169,28 @@ function hEffDepth() {
   if (v.interval && hstate.depth === depths[depths.length - 1]) return depths[depths.length - 2];
   return hstate.depth;
 }
-const hKey = () => `${hstate.source}/${hVar().perCast ? "cast" : hEffDepth()}`;
+const hKey = () => `${hSrcKey()}/${isIso() ? `iso${hstate.isopycnal}` : hVar().perCast ? "cast" : hEffDepth()}`;
 function hDepthText(prefix) {
   const v = hVar();
+  if (isIso()) return hstate.variable === "iso_depth" ? "" : `${prefix}σθ ${hstate.isopycnal}`;
   if (v.perCast) return "";
   const d = hEffDepth(), depths = hSrc().depths;
   return v.interval ? `${prefix}${d}–${depths[depths.indexOf(d) + 1]} m` : `${prefix}${d} m`;
 }
+// Isopycnal variables borrow their at-a-depth counterparts' styles.
+const styleKey = () => hVar().style || hstate.variable;
 const hStyle = () => (hstate.anomaly
-  ? { ...HYDRO_STYLES[hstate.variable], stops: ANOMALY_STYLES[hstate.variable], smooth: true, line: ANOMALY_LINE, lineWidth: 0.8 }
-  : HYDRO_STYLES[hstate.variable]);
-const hLabel = () => `${hVar().label}${hstate.anomaly ? " anomaly" : ""}`;
+  ? { ...HYDRO_STYLES[styleKey()], stops: ANOMALY_STYLES[styleKey()], smooth: true, line: ANOMALY_LINE, lineWidth: 0.8 }
+  : HYDRO_STYLES[styleKey()]);
+const hLabel = () => `${hstate.variable === "iso_depth" ? `Depth of σθ ${hstate.isopycnal}` : hVar().label}${hstate.anomaly ? " anomaly" : ""}`;
 const invMercatorY = (y) => (Math.atan(Math.exp((y * Math.PI) / 180)) * 360) / Math.PI - 90;
 const hVar = () => hmeta.variables[hstate.variable];
 const hData = () => hcache.get(hKey());
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
-const hSourceWord = () => (hstate.source === "ctd" ? "CTD" : "bottle");
+const hSourceWord = () => (hSrcKey() === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units ? ` ${hVar().units}` : "");
 const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2,
-  z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable] ?? 3);
+  z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3);
 
 async function loadHydroMeta() {
   if (!hmeta) hmeta = await getJSON("hydro/meta.json");
@@ -224,7 +233,7 @@ function hTime() {
   return t ?? hLastTime;
 }
 // "Mixed layer depth (m)" for per-cast depths; "Temperature °C, 50 m" otherwise.
-const hTitle = () => (hVar().perCast ? `${hLabel()} (${hVar().units})` : `${hLabel()}${hUnits()}${hDepthText(", ")}`);
+const hTitle = () => (hVar().perCast || hstate.variable === "iso_depth" ? `${hLabel()} (${hVar().units})` : `${hLabel()}${hUnits()}${hDepthText(", ")}`);
 // Lower-case the first letter in running text, but not an abbreviation (N², CTD).
 const lowerFirst = (t) => (/^[A-Z][a-z]/.test(t) ? t[0].toLowerCase() + t.slice(1) : t);
 
@@ -785,8 +794,8 @@ async function renderHydro() {
   // CalCOFI line numbers, from this map's stations.
   for (const m of lineMarkers) m.remove();
   lineMarkers = [];
-  if (!hLineAxesCache.has(hstate.source)) hLineAxesCache.set(hstate.source, computeLineAxes(hSrc().stations));
-  placeLineLabels(points.map((q) => stations[q.st]), hLineAxesCache.get(hstate.source));
+  if (!hLineAxesCache.has(hSrcKey())) hLineAxesCache.set(hSrcKey(), computeLineAxes(hSrc().stations));
+  placeLineLabels(points.map((q) => stations[q.st]), hLineAxesCache.get(hSrcKey()));
 
   // Ichthyoplankton overlay: the matching survey month(s) for the chosen
   // species, stage, net and sampling.
@@ -806,7 +815,7 @@ async function renderHydro() {
   const casts = points.reduce((a, q) => a + q.casts, 0);
   $("period-label").textContent = periods.length
     ? `${when}\n${state.mode === "season" ? `${periods.length > 1 ? "Survey months" : "Survey month"} ${periods.map(hPeriodText).join(", ")} · ` : ""}${points.length} stations, ${casts} casts`
-    : hVar().sources && !hVar().sources.includes(hstate.source)
+    : hVar().sources && !hVar().sources.includes(hSrcKey())
       ? `${hVar().label} comes from CTD casts only (CalCOFI's values): choose the CTD source.`
       : `No ${hSourceWord()} data for this ${state.mode === "season" && state.season !== "sequence" ? "season" : "selection"}.`;
   renderHydroMapLabel(when, periods, showFish, fishPeriods, fc);
@@ -895,7 +904,8 @@ function hydroColourBar(width) {
 }
 
 function renderHydroLegend() {
-  $("hydro-legend-title").textContent = hTitle();
+  // The heading is set in capitals: keep σθ lower case (ΣΘ would read wrongly).
+  $("hydro-legend-title").innerHTML = hTitle().replace(/σθ/g, '<span class="nocase">σθ</span>');
   $("hydro-legend-bar").innerHTML = hydroColourBar(280);
   setToggle("hydro-scale-toggle", hstate.scale);
   renderCompareControls();
@@ -1083,6 +1093,18 @@ function setupHydroControls() {
     hstate.depth = Number(e.target.value);
     render();
   });
+  $("hydro-iso").addEventListener("change", (e) => {
+    hydroPendingTime = hTime();
+    hstate.isopycnal = Number(e.target.value);
+    render();
+  });
+  $("ternary-open").addEventListener("click", () => {
+    const panel = $("ternary-panel");
+    if (!$("ternary-frame").src) $("ternary-frame").src = TERNARY_URL;     // loaded on first open (5 MB)
+    panel.hidden = !panel.hidden;
+    $("ternary-open").setAttribute("aria-pressed", String(!panel.hidden));
+  });
+  $("ternary-close").addEventListener("click", () => { $("ternary-panel").hidden = true; $("ternary-open").setAttribute("aria-pressed", "false"); });
   $("hydro-smoothing").addEventListener("change", (e) => { hstate.smoothing = Number(e.target.value); render(); });
   $("hydro-overlay").addEventListener("change", async (e) => {
     hstate.overlay = e.target.checked;
@@ -1114,10 +1136,13 @@ function setupHydroControls() {
 function fillHydroVariables() {
   const keys = Object.keys(hmeta.variables);
   const option = (k) => `<option value="${k}">${hmeta.variables[k].label}${hmeta.variables[k].sources ? " (CTD)" : ""}</option>`;
-  const base = keys.filter((k) => hmeta.variables[k].group !== "derived"), derived = keys.filter((k) => hmeta.variables[k].group === "derived");
+  const group = (g) => keys.filter((k) => hmeta.variables[k].group === g);
+  const plain = (k) => `<option value="${k}">${hmeta.variables[k].label}</option>`;
   $("hydro-variable").innerHTML = hView() === "anomaly"
-    ? `<optgroup label="At a depth">${base.map(option).join("")}</optgroup><optgroup label="Derived">${derived.map(option).join("")}</optgroup>`
-    : (hView() === "derived" ? derived : base).map(option).join("");
+    ? `<optgroup label="At a depth">${group(undefined).map(option).join("")}</optgroup>` +
+      `<optgroup label="Derived">${group("derived").map(option).join("")}</optgroup>` +
+      `<optgroup label="On isopycnals (CTD)">${group("isopycnal").map(plain).join("")}</optgroup>`
+    : hView() === "watermass" ? group("isopycnal").map(plain).join("") : group(VIEW_GROUP[hView()]).map(option).join("");
   $("hydro-variable").value = hstate.variable;
 }
 
@@ -1128,6 +1153,7 @@ function setHydroView(view) {
   const t = hmeta && hData() ? hTime() : null;
   hstate.anomaly = view === "anomaly";
   hstate.derived = view === "derived";
+  hstate.watermass = view === "watermass";
   if (!viewAllows(hstate.variable, view)) hstate.variable = hstate.viewVars[view];
   if (hmeta) { fillHydroVariables(); fillHydroDepths(); }
   if (t !== null) hydroPendingTime = t;
@@ -1139,10 +1165,15 @@ function fillHydroDepths() {
   // N2 is per interval: the deepest standard depth starts none.
   const depths = v.interval ? all.slice(0, -1) : all;
   if (!all.includes(hstate.depth)) hstate.depth = all.reduce((a, b) => (Math.abs(b - hstate.depth) < Math.abs(a - hstate.depth) ? b : a));
-  $("hydro-depth-box").hidden = Boolean(v.perCast);
+  $("hydro-depth-box").hidden = Boolean(v.perCast) || isIso();
+  $("hydro-iso-box").hidden = !isIso();
+  $("hydro-source-box").hidden = state.layer !== "hydro" || isIso();
+  $("hydro-iso").value = String(hstate.isopycnal);
   $("hydro-depth").innerHTML = depths.map((d, i) => `<option value="${d}">${v.interval ? `${d}–${all[i + 1]} m` : `${d} m`}</option>`).join("");
   $("hydro-depth").value = String(hEffDepth());
   const [a, b] = hSrc().years;
+  $("hydro-iso-note").textContent = `Properties where each CTD downcast (${a}–${b}) crosses the surface, read from the profile itself; ` +
+    "σθ 25.8 lies at about 100 m, 26.4 at about 200 m.";
   $("hydro-source-note").textContent = hstate.source === "bottle"
     ? `Bottle samples at the CalCOFI standard depths, ${a}–${b} (interpolated to the standard depths by CalCOFI).`
     : `CTD downcasts, ${a}–${b}, read at the standard depths. 2025–26 salinity is preliminary (not yet bottle-corrected).`;
@@ -1152,9 +1183,11 @@ function fillHydroDepths() {
 function writeHydroHash(params) {
   if (hstate.anomaly) params.set("layer", "anomaly");
   else if (hstate.derived) params.set("layer", "derived");
+  else if (hstate.watermass) params.set("layer", "watermass");
   params.set("src", hstate.source);
   params.set("var", hstate.variable);
   params.set("depth", hstate.depth);
+  if (isIso()) params.set("iso", hstate.isopycnal);
   if (hstate.scale !== "floating") params.set("hscale", hstate.scale);
   if (hstate.scale !== "floating" && hstate.compare) params.set("cmp", hstate.compare.join("-"));
   if (hstate.smoothing !== 75) params.set("L", hstate.smoothing);
@@ -1172,8 +1205,12 @@ function writeHydroHash(params) {
 
 function readHydroHash(params) {
   if (params.get("src") in { bottle: 1, ctd: 1 }) hstate.source = params.get("src");
-  if (params.get("var") in HYDRO_STYLES) hstate.variable = params.get("var");
+  if (hmeta && params.get("var") in hmeta.variables) hstate.variable = params.get("var");
   if (params.has("depth")) hstate.depth = Number(params.get("depth")) || 50;
+  if ([25.8, 26.4].includes(Number(params.get("iso")))) hstate.isopycnal = Number(params.get("iso"));
+  // (The view flags are set just before this, by readHash.)
+  if (hmeta && !viewAllows(hstate.variable)) hstate.variable = hstate.viewVars[hView()];
+  if (hmeta) hstate.viewVars[hView()] = hstate.variable;
   if (params.get("hscale") in { all: 1, season: 1 }) hstate.scale = params.get("hscale");
   const cmp = (params.get("cmp") || "").split("-").map(Number);
   if (cmp.length === 2 && cmp.every(Number.isFinite)) hstate.compare = [Math.min(...cmp), Math.max(...cmp)];

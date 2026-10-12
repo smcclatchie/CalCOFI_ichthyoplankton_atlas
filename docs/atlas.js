@@ -834,11 +834,17 @@ function updateLayerControls() {
   const hydro = state.layer === "hydro";
   setToggle("layer-toggle", !hydro ? "ichthyo" : hView());
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
+  // Isopycnal variables are CTD only: no source choice.
+  if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
   renderHighCounts();   // the distribution panels stay open in both views
-  document.querySelector(".subtitle").textContent = hydro && hstate.derived && !hstate.anomaly
+  document.querySelectorAll(".watermass-only").forEach((e) => { e.hidden = !(hydro && hView() === "watermass"); });
+  if (!(hydro && hView() === "watermass")) $("ternary-panel").hidden = true;
+  document.querySelector(".subtitle").textContent = hydro && hView() === "watermass"
+    ? "Water masses: temperature, salinity and oxygen on the σθ 25.8 and 26.4 surfaces, from CalCOFI CTD casts (1993–2026)"
+    : hydro && hstate.derived && !hstate.anomaly
     ? "Derived variables from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts: isopycnal, nitricline, chlorophyll-maximum and mixed layer depths, spiciness, N²"
     : hydro && hstate.anomaly
     ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
@@ -1546,9 +1552,10 @@ function readHash() {
     const shown = state.season === "sequence" ? params.get("shown") : state.season;
     seasonSteps = [{ season: SEASON_LABEL[shown] ? shown : "winter", year }];
   }
-  if (["hydro", "anomaly", "derived"].includes(params.get("layer"))) state.layer = "hydro";
+  if (["hydro", "anomaly", "derived", "watermass"].includes(params.get("layer"))) state.layer = "hydro";
   hstate.anomaly = params.get("layer") === "anomaly";
   hstate.derived = params.get("layer") === "derived";
+  hstate.watermass = params.get("layer") === "watermass";
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));

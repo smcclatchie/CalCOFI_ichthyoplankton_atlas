@@ -29,10 +29,11 @@
           <button type="button" role="radio" data-value="hydro" aria-checked="false">Hydrography</button>
           <button type="button" role="radio" data-value="derived" aria-checked="false">Derived</button>
           <button type="button" role="radio" data-value="anomaly" aria-checked="false">Anomalies</button>
+          <button type="button" role="radio" data-value="watermass" aria-checked="false">Water masses</button>
         </div>
       </section>
 
-      <section class="control hydro-only" hidden>
+      <section class="control hydro-only" id="hydro-source-box" hidden>
         <span class="label">Source</span>
         <div class="segmented" id="hydro-source" role="radiogroup" aria-label="Hydrography source">
           <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle 1949–2021</button>
@@ -50,6 +51,14 @@
           <label for="hydro-depth">Depth</label>
           <select id="hydro-depth"></select>
         </div>
+        <div id="hydro-iso-box" hidden>
+          <label for="hydro-iso">Isopycnal</label>
+          <select id="hydro-iso">
+            <option value="25.8">σθ 25.8</option>
+            <option value="26.4">σθ 26.4</option>
+          </select>
+        </div>
+        <p id="hydro-iso-note" class="hint watermass-only" hidden></p>
       </section>
 
       <section class="control hydro-only" hidden>
@@ -116,6 +125,12 @@
         </div>
         <input id="period-range" type="range" min="0" max="0" value="0">
         <p id="period-label" class="period-label"></p>
+      </section>
+
+      <section class="control watermass-only" hidden>
+        <span class="label">Ternary plot</span>
+        <button type="button" id="ternary-open" class="secondary-button" aria-pressed="false">Water masses vs. warm/cool-water larvae</button>
+        <p class="hint">Winter water-mass composition (Pacific Subarctic, Pacific Equatorial and North Pacific Central waters; OMP analysis of bottle data) at each core station, against the warm- and cool-water indicator larvae caught there, year by year.</p>
       </section>
 
       <section class="control ichthyo-only">
@@ -205,6 +220,13 @@
           <p id="cruise-note" class="hint"></p>
         </section>
       </div>
+      <section id="ternary-panel" class="ternary-panel" hidden aria-label="Ternary plot">
+        <header>
+          <h2>Water-mass composition vs. warm/cool-water ichthyoplankton, winter, core stations</h2>
+          <button type="button" id="ternary-close" aria-label="Close ternary plot">✕</button>
+        </header>
+        <iframe id="ternary-frame" title="Ternary plot of water-mass composition and warm/cool-water larvae" loading="lazy"></iframe>
+      </section>
       <section id="station-panel" class="station-panel" hidden aria-label="Station time series">
         <header>
           <h2 id="station-title"></h2>

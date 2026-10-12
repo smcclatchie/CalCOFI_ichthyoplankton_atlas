@@ -15,6 +15,9 @@ which hold every selection and quality rule; this script only reshapes them:
                                           survey month values of temperature,
                                           salinity, sigma-theta, oxygen,
                                           nitrate, silicate, spiciness and N2
+  docs/data/hydro/ctd/iso<s>.json         temperature, salinity, oxygen and depth
+                                          on the sigma-theta 25.8 and 26.4 surfaces
+                                          (Water masses view; CTD only)
   docs/data/hydro/<source>/cast.json      per-cast derived depths (sigma-theta
                                           25.0 surface, nitricline; CTD also
                                           CalCOFI's chlorophyll max and MLD)
@@ -69,6 +72,17 @@ DERIVED_CAST_VARIABLES = {
     "mld": {"label": "Mixed layer depth", "units": "m", "column": "mld", "decimals": 1, "sources": ["ctd"]},
 }
 DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES}
+# Water masses view: properties on two isopycnals, from CTD casts only
+# (the companion repo's build_isopycnal_properties.py), written to
+# ctd/iso<surface>.json.
+ISOPYCNALS = [25.8, 26.4]
+ISOPYCNAL_FILE = "CalCOFI_isopycnal/calcofi_ctd_isopycnals.parquet"
+ISOPYCNAL_VARIABLES = {
+    "iso_temperature": {"label": "Temperature", "units": "°C", "column": "t", "decimals": 3, "style": "temperature", "from": "temperature"},
+    "iso_salinity": {"label": "Salinity", "units": "", "column": "s", "decimals": 3, "style": "salinity", "from": "salinity"},
+    "iso_oxygen": {"label": "Dissolved oxygen", "units": "ml L⁻¹", "column": "o", "decimals": 3, "style": "oxygen", "from": "oxygen"},
+    "iso_depth": {"label": "Depth of the surface", "units": "m", "column": "zi", "decimals": 1, "style": "z_sigma25", "from": "depth_m"},
+}
 
 
 def dump(obj, path):
@@ -133,6 +147,22 @@ def build_source(key, path, label, out_dir, src_dir):
     dump(rec, os.path.join(out_dir, key, "cast.json"))
     sizes += os.path.getsize(os.path.join(out_dir, key, "cast.json"))
 
+    # isopycnal properties (CTD only): station x survey month means per surface
+    iso_path = os.path.join(src_dir, ISOPYCNAL_FILE)
+    if key == "ctd" and os.path.exists(iso_path):
+        iso = con.sql(f"SELECT * FROM '{iso_path}' WHERE site_key IS NOT NULL").df()
+        iso["period"] = iso.date.str[:7]
+        for level in ISOPYCNALS:
+            g = (iso[iso.sigma_theta == level].groupby(["period", "site_key"])
+                 .agg(**{v: (spec["from"], "mean") for v, spec in ISOPYCNAL_VARIABLES.items()}, n=("cast", "nunique"))
+                 .reset_index().sort_values(["period", "site_key"]))
+            rec = {"p": [pidx[p] for p in g.period], "st": [sidx[s] for s in g.site_key], "n": g.n.astype(int).tolist()}
+            for v, spec in ISOPYCNAL_VARIABLES.items():
+                rec[spec["column"]] = [None if pd.isna(x) else float(x) for x in g[v].round(spec["decimals"])]
+            path = os.path.join(out_dir, key, f"iso{level}.json")
+            dump(rec, path)
+            sizes += os.path.getsize(path)
+
     print(f"{label}: {len(periods)} survey months ({periods[0]} to {periods[-1]}), {len(stations)} stations, "
           f"{len(depths)} depths, {sizes / 1e6:.1f} MB")
     return {
@@ -161,7 +191,10 @@ def main():
                    **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived", "perCast": True,
                    **({"sources": v["sources"]} if "sources" in v else {})} for k, v in DERIVED_CAST_VARIABLES.items()},
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "isopycnal",
+                   "style": v["style"], "sources": ["ctd"]} for k, v in ISOPYCNAL_VARIABLES.items()},
         },
+        "isopycnals": ISOPYCNALS,
         "sources": {},
     }
     for key, (rel, label) in SOURCES.items():
