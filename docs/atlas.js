@@ -843,10 +843,9 @@ function updateLayerControls() {
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
-  // Sections belong to the Hydrography view.
-  // Sections: Hydrography view, and the water-mass fractions in Water masses.
-  document.querySelectorAll(".hydro-view-only").forEach((e) => { e.hidden = !(hydro && (hView() === "hydro" || hView() === "watermass")); });
-  if (!(hydro && (hView() === "hydro" || hView() === "watermass"))) {
+  // Sections: Hydrography view, the water-mass fractions in Water masses, and anomalies.
+  document.querySelectorAll(".hydro-view-only").forEach((e) => { e.hidden = !(hydro && sectionView()); });
+  if (!(hydro && sectionView())) {
     $("section-panel").hidden = true;
     document.querySelector(".map-area").classList.remove("section-open", "panels-split");
   }

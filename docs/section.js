@@ -2,7 +2,8 @@
 // against position along the line, for the month or season shown and the
 // source chosen. In the Hydrography view the section shows the map's variable
 // (or stability N2, or geostrophic velocity); in the Water masses view, the
-// map's water-mass fraction.
+// map's water-mass fraction; in the Anomalies view, the map's variable as a
+// departure from each station's climatology at each standard depth.
 //
 // The section's horizontal axis has the map's scale along the line (the line
 // runs roughly straight in the map's projection, so position along it maps
@@ -20,6 +21,11 @@
 // joined linearly between neighbouring stations and standard depths, never
 // beyond the outermost stations or below a station's deepest value.
 //
+// Anomalies: each station and standard depth minus its climatology for the
+// calendar month or season, as on the map (the mean over all years, each
+// year's value the mean of its survey months; at least ANOMALY_MIN_YEARS
+// years, else left blank), over the whole record of the source shown.
+//
 // Geostrophic velocity across the line, relative to 500 dbar, between
 // neighbouring stations that both reach 500 m:
 //   v(z) = (10 / f) * (dD_on(z) - dD_off(z)) / L,   dD(z) = D(500) - D(z)
@@ -31,7 +37,7 @@ const SECTION_COLUMNS = { temperature: "t", salinity: "s", sigma_theta: "d", oxy
   wm_psa: "psa", wm_pew: "pew", wm_npcw: "npcw" };
 const SECTION_EXTRA = {
   n2: { label: "Stability (N²)", units: "10⁻⁴ s⁻²", col: "n2", style: "n2", interval: true },
-  geovel: { label: "Geostrophic velocity, relative to 500 dbar (poleward +)", units: "cm s⁻¹", style: "salinity", diverging: true },
+  geovel: { label: "Geostrophic velocity, relative to 500 dbar (poleward +)", units: "cm s⁻¹", style: "salinity", diverging: true, geostrophic: true },
 };
 const SECTION_MAX_GAP_KM = 150;
 const SECTION_DEPTH = 500;
@@ -41,16 +47,58 @@ let sLoadToken = 0;
 let sCur = null;                     // the computed section, redrawn on every map move
 let sFrame = 0;
 
-const sectionShown = () => sstate.display === "section" && state.layer === "hydro" && (hView() === "hydro" || hView() === "watermass");
+const sectionView = () => ["hydro", "watermass", "anomaly"].includes(hView());
+const sectionShown = () => sstate.display === "section" && state.layer === "hydro" && sectionView();
 const sKey = () => `${hSrcKey()}/line${sstate.line}`;
 
 // The section's variable: the map's (when it has one), N2 or geostrophic velocity.
 function sVar() {
   const choice = hView() === "hydro" ? sstate.variable : "map";
   if (choice !== "map") return SECTION_EXTRA[choice];
+  if (hstate.anomaly && hstate.variable === "n2") return { ...SECTION_EXTRA.n2, label: hLabel(), anomaly: true, diverging: true };
   const col = SECTION_COLUMNS[hstate.variable];
   if (!col) return null;
-  return { label: hVar().label, units: hVar().units, col, style: styleKey() };
+  return { label: hLabel(), units: hVar().units, col, style: styleKey(), anomaly: hstate.anomaly, diverging: hstate.anomaly };
+}
+
+// Climatology along the line: "station|depth index|slot" -> mean, for one column.
+const sClimCache = new Map();
+function sectionClimatology(d, col) {
+  const key = `${sKey()}/${col}/${state.mode}`;
+  if (sClimCache.has(key)) return sClimCache.get(key);
+  const periods = hSrc().periods, years = new Map();
+  for (let i = 0; i < d.p.length; i++) {
+    const v = d[col]?.[i];
+    if (v === null || v === undefined) continue;
+    const x = periods[d.p[i]], k = `${d.st[i]}|${d.z[i]}|${climSlot(x)}`, y = climYear(x);
+    if (!years.has(k)) years.set(k, new Map());
+    const r = years.get(k).get(y) || { sum: 0, n: 0 };
+    r.sum += v;
+    r.n += 1;
+    years.get(k).set(y, r);
+  }
+  const clim = new Map();
+  for (const [k, byYear] of years) {
+    if (byYear.size < ANOMALY_MIN_YEARS) continue;
+    let sum = 0;
+    for (const r of byYear.values()) sum += r.sum / r.n;
+    clim.set(k, sum / byYear.size);
+  }
+  sClimCache.set(key, clim);
+  return clim;
+}
+
+// Profiles as departures from the climatology of their calendar month or season.
+function sectionAnomalies(d, profiles, v, period) {
+  const clim = sectionClimatology(d, v.col), slot = climSlot(hSrc().periods[period]);
+  for (const p of profiles) {
+    if (!p[v.col]) continue;
+    p[v.col] = p[v.col].map((val, k) => {
+      const c = clim.get(`${p.st}|${k}|${slot}`);
+      return val === null || c === undefined ? null : val - c;
+    });
+  }
+  return profiles;
 }
 
 async function loadSection() {
@@ -118,7 +166,7 @@ function sectionProfiles(d, periods, geo) {
 
 function sectionColumns(profiles, v) {
   const depths = hSrc().depths;
-  if (v.diverging) {                   // geostrophic velocity between neighbouring stations
+  if (v.geostrophic) {                // geostrophic velocity between neighbouring stations
     const k500 = depths.indexOf(SECTION_DEPTH), cols = [];
     for (let i = 1; i < profiles.length; i++) {
       const a = profiles[i - 1], b = profiles[i];        // a inshore, b offshore
@@ -160,7 +208,9 @@ function sectionRange(d, geo, v) {
   }
   let lo = Infinity, hi = -Infinity, n = 0;
   for (const ps of groups.values()) {
-    const vals = sectionValues(sectionColumns(sectionProfiles(d, ps, geo), v));
+    let profiles = sectionProfiles(d, ps, geo);
+    if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, ps[0]);
+    const vals = sectionValues(sectionColumns(profiles, v));
     if (vals.length) n++;
     for (const val of vals) { lo = Math.min(lo, val); hi = Math.max(hi, val); }
   }
@@ -174,7 +224,7 @@ function sectionScale(values, fixed, v) {
   if (!(hi > lo)) hi = lo + 0.01;
   const { levels, step } = niceLevels(lo, hi);
   const style = HYDRO_STYLES[v.style], n = levels.length - 1, a = levels[0], b = levels[n];
-  const stops = v.diverging ? ANOMALY_STYLES.salinity : style.stops;
+  const stops = v.anomaly ? ANOMALY_STYLES[v.style] : v.diverging ? ANOMALY_STYLES.salinity : style.stops;
   const smooth = v.diverging ? true : style.smooth;
   const colors = Array.from({ length: n }, (_, i) => rgbText(paletteAt(stops, (i + 0.5) / n)));
   const colorAt = smooth
@@ -249,16 +299,23 @@ async function renderSection() {
   const d = scache.get(sKey()), geo = lineGeometry(d), v = sVar();
   const periods = hShownPeriods();
   const when = !periods.length ? "" : state.mode === "month" ? hPeriodText(periods[0]) : seasonText(hSteps[hstate.seasonPos]);
-  $("section-title").textContent = `Line ${sstate.line} — ${v ? v.label : hVar().label} · ${when} · ${hSrc().label}`;
+  $("section-title").textContent = `Line ${sstate.line} — ${v ? v.label : hLabel()} · ${when} · ${hSrc().label}`;
   if (geo) {
     const coords = geo.stations.slice().sort((a, b) => geo.x.get(a.i) - geo.x.get(b.i)).map((s) => [s.lon, s.lat]);
     map.getSource("section-line").setData({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} }] });
   }
-  if (!v) { sCur = null; showSectionMessage(hView() === "watermass" ? "Sections show the water-mass fractions: choose PSA, PEW or NPCW." : `No section for ${hVar().label.toLowerCase()}.`); return; }
+  if (!v) { sCur = null; showSectionMessage(hView() === "watermass" ? "Sections show the water-mass fractions: choose PSA, PEW or NPCW." : `No section for ${hLabel().toLowerCase()}${hView() === "anomaly" ? ": sections show the variables at a depth (temperature, salinity, density, oxygen, nitrate, silicate, stability, water-mass fractions)" : ""}.`); return; }
   if (!geo) { sCur = null; showSectionMessage(`No ${hSourceWord()} stations on line ${sstate.line}.`); return; }
-  const profiles = sectionProfiles(d, periods, geo);
+  let profiles = sectionProfiles(d, periods, geo);
+  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods[0]);
   const cols = sectionColumns(profiles, v);
-  if (cols.length < 2) { sCur = null; showSectionMessage(`Line ${sstate.line} was not sampled${cols.length ? " at enough stations" : ""} in ${when || "this period"} (${hSourceWord()}).`); return; }
+  if (cols.length < 2) {
+    sCur = null;
+    showSectionMessage(v.anomaly && profiles.length >= 2
+      ? `Too few of line ${sstate.line}'s stations sampled in ${when || "this period"} have a climatology (${ANOMALY_MIN_YEARS}+ years of ${hSourceWord()} data) for an anomaly section.`
+      : `Line ${sstate.line} was not sampled${cols.length ? " at enough stations" : ""} in ${when || "this period"} (${hSourceWord()}).`);
+    return;
+  }
   const values = sectionValues(cols);
   const fixed = hstate.scale !== "floating" ? sectionRange(d, geo, v) : null;
   const scale = sectionScale(values, fixed, v);
@@ -288,7 +345,7 @@ async function renderSection() {
   };
   fillAlong(grid.nx, grid.nz, (j, i) => j * grid.nx + i);
   fillAlong(grid.nz, grid.nx, (i, j) => j * grid.nx + i);
-  const fmin = Math.min(...values) - 1;
+  const fmin = Math.min(...values) - Math.abs(Math.max(...values) - Math.min(...values)) - 1;
   for (let k = 0; k < filled.length; k++) if (!Number.isFinite(filled[k])) filled[k] = fmin;
   // grid coordinates -> (km, depth m)
   const toKm = (x) => ((x - 0.5) / (grid.nx - 1)) * geo.xmax, toZ = (y) => ((y - 0.5) / (grid.nz - 1)) * SECTION_DEPTH;
@@ -408,7 +465,7 @@ function drawSection() {
     const val = X >= m.l && X <= W - m.r && i >= 0 && j >= 0 && i < grid.nx && j < grid.nz ? grid.g[j * grid.nx + i] : NaN;
     if (!Number.isFinite(val)) { tip.hidden = true; return; }
     tip.hidden = false;
-    tip.textContent = `${v.diverging ? signedValue(+val.toFixed(1)) : +val.toFixed(3)}${v.units ? ` ${v.units}` : ""} · ${Math.round(z)} m · ${Math.round(km)} km`;
+    tip.textContent = `${v.diverging ? signedValue(+val.toFixed(v.anomaly ? 2 : 1)) : +val.toFixed(3)}${v.units ? ` ${v.units}` : ""} · ${Math.round(z)} m · ${Math.round(km)} km`;
     tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, X - tip.offsetWidth / 2))}px`;
     tip.style.top = `${Y - 34}px`;
   });
@@ -448,9 +505,12 @@ function sectionNote(scale, v) {
   if (hstate.scale !== "floating" && scale.fixed) {
     const season = hstate.scale === "season" ? `, ${hShownSeason()}` : "";
     return `Fixed scale, ${range}${units}: it covers every value in the ${scale.maps} sections of ${hstate.compare.join("–")}${season}, ` +
-      `so those sections share colours; ${contours}. Grey: no data (below the deepest sample).`;
+      `so those sections share colours; ${contours}. Grey: no data (below the deepest sample).` +
+      (v.anomaly ? ` Anomalies from each station's mean for this ${state.mode === "month" ? "calendar month" : "season"} at each depth (${ANOMALY_MIN_YEARS}+ years).` : "");
   }
-  return `Scale fitted to this section, ${range}${units}; ${contours}. Grey: no data (below the deepest sample).`;
+  const clim = v.anomaly ? ` Anomalies from each station's mean for this ${state.mode === "month" ? "calendar month" : "season"} at each depth, ` +
+    `${hSrc().years[0]}–${hSrc().years[1]} (${ANOMALY_MIN_YEARS}+ years); grey also where there is no climatology.` : "";
+  return `Scale fitted to this section, ${range}${units}${v.diverging ? ", symmetric about zero" : ""}; ${contours}. Grey: no data (below the deepest sample).${clim}`;
 }
 
 function addSectionLayers() {

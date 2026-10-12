@@ -1274,7 +1274,7 @@ function writeHydroHash(params) {
   if (hstate.overlay) params.set("overlay", "1");
   if (hstate.stationKey !== null) params.set("hst", hstate.stationKey);
   if (hstate.chart === "hydro") params.set("chart", "hydro");
-  if (hView() === "hydro" || hView() === "watermass") writeSectionHash(params);
+  if (sectionView()) writeSectionHash(params);
   if (!hmeta) return;
   if (state.mode === "month" && hAvailable.length) params.set("survey", hSrc().periods[hAvailable[hstate.periodPos]].key);
   if (state.mode === "season" && hSteps.length) {
