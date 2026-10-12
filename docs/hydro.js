@@ -64,6 +64,22 @@ const HYDRO_STYLES = {
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
 };
+// Anomalies: balanced (diverging) palettes, neutral at zero, each built from
+// its variable's own palette above (user, 2026-10-12): temperature from the
+// SST palette's blue and red-pink ends, salinity cmocean balance itself,
+// density from cmocean dense's purple end against a teal, oxygen from deep,
+// nitrate matter against tempo, silicate the reverse. Black contours, the zero
+// contour drawn heavier; land as the variable's own map.
+const ANOMALY_STYLES = {
+  temperature: ["#0030f5", "#1250d0", "#1769ad", "#4a86bf", "#86acd3", "#c2d3e6", "#f2f0ec", "#f6cfb0", "#f4a874", "#f16715", "#f55945", "#f2668f", "#fd92fa"],
+  salinity: ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"],
+  sigma_theta: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
+  oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
+  nitrate: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
+  silicate: ["#5f185a", "#921f63", "#bf365b", "#e05e53", "#f18f63", "#f6c9a0", "#f3f1ec", "#c9d4bf", "#91ba98", "#4ea183", "#13837b", "#19616c", "#151d44"],
+};
+const ANOMALY_LINE = "#1f1e1c";
+const ANOMALY_MIN_YEARS = 20;           // a station's climatology needs at least this many years (user, 2026-10-12)
 const FILL_OPACITY_OVER_BLACK = 0.85;   // as the Fishing Maps fills
 const ICHTHYO_LAND = "#e8e6df";
 const LABEL_SPACING_PX = 320;           // contour labels: one per this much line
@@ -83,6 +99,7 @@ const hstate = {
   periodPos: 0,          // position within hAvailable
   seasonPos: 0,          // position within hSteps
   stationKey: null,      // selected station "line station" (shared with the ichthyoplankton view)
+  anomaly: false,        // the Anomalies view: departures from each station's climatology
 };
 let hmeta = null;
 const hcache = new Map();      // "source/depth" -> data
@@ -96,7 +113,10 @@ let hLineAxesCache = new Map(); // source -> CalCOFI line axes from its stations
 let hLoadToken = 0;
 
 const hSrc = () => hmeta.sources[hstate.source];
-const hStyle = () => HYDRO_STYLES[hstate.variable];
+const hStyle = () => (hstate.anomaly
+  ? { ...HYDRO_STYLES[hstate.variable], stops: ANOMALY_STYLES[hstate.variable], smooth: true, line: ANOMALY_LINE, lineWidth: 0.8 }
+  : HYDRO_STYLES[hstate.variable]);
+const hLabel = () => `${hVar().label}${hstate.anomaly ? " anomaly" : ""}`;
 const invMercatorY = (y) => (Math.atan(Math.exp((y * Math.PI) / 180)) * 360) / Math.PI - 90;
 const hVar = () => hmeta.variables[hstate.variable];
 const hData = () => hcache.get(`${hstate.source}/${hstate.depth}`);
@@ -207,7 +227,55 @@ function hStationValues(periods) {
     }
   }
   for (const r of acc.values()) r.v = r.sum / r.months;
+  if (hstate.anomaly && periods.length) {
+    // Departure from each station's climatology for this calendar month or
+    // season; stations without one (< ANOMALY_MIN_YEARS years) are left out.
+    const clim = climatology(), slot = climSlot(hSrc().periods[periods[0]]);
+    hAnomalyDropped = 0;
+    for (const [st, r] of acc) {
+      const c = clim.get(`${st}|${slot}`);
+      if (c === undefined) { acc.delete(st); hAnomalyDropped++; } else r.v -= c.mean;
+    }
+  }
   return acc;
+}
+
+// ------------------------------------------------------------ anomalies --
+//
+// Climatology: for each station, the mean over all years of its value for a
+// calendar month ("By month") or season ("By season": each year's value is the
+// mean of the season's survey months, as on the map), over the whole record of
+// the source shown -- the longest baseline the data allow. Only stations with
+// at least ANOMALY_MIN_YEARS years count.
+let hAnomalyDropped = 0;       // stations on the map shown without a climatology
+const hClimCache = new Map();
+const climSlot = (x) => (state.mode === "month" ? x.month : SEASON_OF_MONTH[x.month]);
+const climYear = (x) => (state.mode === "month" ? x.year : x.year + (x.month === 12 ? 1 : 0));
+
+function climatology() {
+  const key = `${hstate.source}/${hstate.depth}/${hstate.variable}/${state.mode}`;
+  if (hClimCache.has(key)) return hClimCache.get(key);
+  const d = hData(), col = hVar().column, periods = hSrc().periods;
+  const years = new Map();     // "st|slot" -> year -> {sum, n}
+  for (let i = 0; i < d.p.length; i++) {
+    const v = d[col][i];
+    if (v === null) continue;
+    const x = periods[d.p[i]], k = `${d.st[i]}|${climSlot(x)}`, y = climYear(x);
+    if (!years.has(k)) years.set(k, new Map());
+    const r = years.get(k).get(y) || { sum: 0, n: 0 };
+    r.sum += v;
+    r.n += 1;
+    years.get(k).set(y, r);
+  }
+  const clim = new Map();
+  for (const [k, byYear] of years) {
+    if (byYear.size < ANOMALY_MIN_YEARS) continue;
+    let sum = 0;
+    for (const r of byYear.values()) sum += r.sum / r.n;
+    clim.set(k, { mean: sum / byYear.size, years: byYear.size });
+  }
+  hClimCache.set(key, clim);
+  return clim;
 }
 
 // ----------------------------------------------------------------- field --
@@ -363,14 +431,20 @@ function compareRange() {
     const x = periods[d.p[i]], yr = hStepYear(x), s = SEASON_OF_MONTH[x.month];
     if (yr < y0 || yr > y1 || (season && s !== season)) continue;
     const key = state.mode === "season" ? `${d.st[i]}|${yr}|${s}` : `${d.st[i]}|${d.p[i]}`;
-    const r = acc.get(key) || { sum: 0, n: 0 };
+    const r = acc.get(key) || { sum: 0, n: 0, st: d.st[i], slot: climSlot(x) };
     r.sum += v;
     r.n += 1;
     acc.set(key, r);
   }
   let lo = Infinity, hi = -Infinity, maps = new Set();
+  const clim = hstate.anomaly ? climatology() : null;
   for (const [key, r] of acc) {
-    const v = r.sum / r.n;
+    let v = r.sum / r.n;
+    if (clim) {
+      const c = clim.get(`${r.st}|${r.slot}`);
+      if (c === undefined) continue;
+      v -= c.mean;
+    }
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
     maps.add(key.slice(key.indexOf("|") + 1));
@@ -386,6 +460,12 @@ function hydroScale(field) {
     ensureCompareYears();
     fixed = hstate.compare ? compareRange() : null;
     if (fixed) ({ lo, hi } = fixed);
+  }
+  if (hstate.anomaly) {
+    // Anomalies: symmetric about zero, so zero is the neutral colour.
+    const m = Math.max(Math.abs(lo), Math.abs(hi), 0.01);
+    lo = -m;
+    hi = m;
   }
   if (!(hi > lo)) hi = lo + 0.01;
   const { levels, step } = niceLevels(lo, hi);
@@ -460,7 +540,7 @@ const BLANK_IMAGE = { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAA
 // Matplotlib-style inline labels, as on the Fishing Maps: the level in the
 // line's colour, rotated along the line, with the line cut away under it.
 // Laid out in screen space, so they are redone after every zoom or pan.
-function labelText(v) { return String(+v.toFixed(3)); }
+function labelText(v) { return signedTick(v); }
 
 function layoutContourLabels() {
   for (const m of hLabelMarkers) m.remove();
@@ -556,14 +636,14 @@ function addHydroLayers() {
     if (hits.length) return;   // a station's own popup
     const v = hField ? fieldAt(hField, e.lngLat.lng, e.lngLat.lat) : null;
     if (v === null) { popup.remove(); return; }
-    popup.setLngLat(e.lngLat).setHTML(`${hFmt(v)}${hUnits()}<br><span style="color:#85837c">mapped ${hVar().label.toLowerCase()}, ${hstate.depth} m</span>`).addTo(map);
+    popup.setLngLat(e.lngLat).setHTML(`${hSigned(v)}${hUnits()}<br><span style="color:#85837c">mapped ${hLabel().toLowerCase()}, ${hstate.depth} m</span>`).addTo(map);
   });
   map.on("mousemove", "hydro-stations", (e) => {
     map.getCanvas().style.cursor = "pointer";
     const f = e.features[0].properties;
     const s = hSrc().stations[f.st];
     popup.setLngLat(e.lngLat).setHTML(`<strong>Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)}</strong><br>` +
-      `${hFmt(f.v)}${hUnits()} at ${hstate.depth} m<br>` +
+      `${hSigned(f.v)}${hUnits()} at ${hstate.depth} m<br>` +
       `<span style="color:#85837c">${f.months > 1 ? `mean of ${f.months} survey months, ` : ""}${f.casts} cast${f.casts > 1 ? "s" : ""}</span>`).addTo(map);
   });
   map.on("mouseleave", "hydro-stations", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
@@ -612,7 +692,9 @@ async function renderHydro() {
   const style = hStyle();
   map.setPaintProperty("land", "fill-color", style.land);
   map.setPaintProperty("hydro-line", "line-color", style.line);
-  map.setPaintProperty("hydro-line", "line-width", style.lineWidth);
+  map.setPaintProperty("hydro-line", "line-width", hstate.anomaly
+    ? ["case", ["==", ["get", "level"], 0], style.lineWidth * 2.4, style.lineWidth]
+    : style.lineWidth);
   if (points.length >= 3) {
     hField = computeField(points);
     hLevels = hydroScale(hField);
@@ -667,8 +749,24 @@ async function renderHydro() {
 }
 let hydroPendingTime = null;
 
+// Stations on the map shown that have no climatology (fewer than
+// ANOMALY_MIN_YEARS years) are left out of an anomaly map; say how many.
+function anomalyNote() {
+  if (!hstate.anomaly) return "";
+  const base = `Departures from each station's ${state.mode === "month" ? "calendar-month" : "seasonal"} mean, ` +
+    `${hSrc().years[0]}–${hSrc().years[1]} (stations with ${ANOMALY_MIN_YEARS}+ years)`;
+  const left = hAnomalyDropped ? `; ${hAnomalyDropped} station${hAnomalyDropped > 1 ? "s" : ""} without one left out` : "";
+  return `<span class="map-note">${base}${left}.</span>`;
+}
+const hSigned = (v) => `${hstate.anomaly && v > 0 ? "+" : ""}${hFmt(v)}`.replace("-", "−");
+// Axis and colour-bar ticks: anomalies get a sign (+ / true minus).
+const signedTick = (v) => {
+  const t = String(+v.toFixed(3));
+  return hstate.anomaly ? (v > 0 ? `+${t}` : t.replace("-", "−")) : t;
+};
+
 function hydroWhat() {
-  return `${hSrc().label} · ${hVar().label} at ${hstate.depth} m`;
+  return `${hSrc().label} · ${hLabel()} at ${hstate.depth} m`;
 }
 
 function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
@@ -685,7 +783,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
       : `<span class="bar-title">${name}: no ${meta.nets[state.net].code}-net tows in this ${state.mode === "season" ? "season" : "month"}</span>`;
   }
   $("map-label").innerHTML = `<span class="when">${when}</span>${hydroWhat()}<br>Cruise${cruises.length > 1 ? "s" : ""} ${cruiseText}` +
-    `<span class="bar-title">${hVar().label}${hUnits()}, ${hstate.depth} m</span>${hydroColourBar(300)}${fish}`;
+    `<span class="bar-title">${hLabel()}${hUnits()}, ${hstate.depth} m</span>${hydroColourBar(300)}${anomalyNote()}${fish}`;
 }
 
 function hydroColourBar(width) {
@@ -718,22 +816,27 @@ function hydroColourBar(width) {
     if (i % every) return;
     const x = m.l + i * bw;
     parts.push(`<line x1="${x}" x2="${x}" y1="${2 + h}" y2="${5 + h}" stroke="#85837c"/>`);
-    parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${+v.toFixed(3)}</text>`);
+    parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${signedTick(v)}</text>`);
   });
   return `<svg class="colour-bar" viewBox="0 0 ${width} ${h + 20}" width="${width}" height="${h + 20}" role="img" aria-label="Colour scale">${parts.join("")}</svg>`;
 }
 
 function renderHydroLegend() {
-  $("hydro-legend-title").textContent = `${hVar().label}${hUnits()}, ${hstate.depth} m`;
+  $("hydro-legend-title").textContent = `${hLabel()}${hUnits()}, ${hstate.depth} m`;
   $("hydro-legend-bar").innerHTML = hydroColourBar(280);
   setToggle("hydro-scale-toggle", hstate.scale);
   renderCompareControls();
   if (!hLevels) { $("hydro-scale-note").textContent = "Too few stations to contour."; return; }
-  const range = `${+hLevels.levels[0].toFixed(3)}–${+hLevels.levels[hLevels.levels.length - 1].toFixed(3)}`;
+  const top = +hLevels.levels[hLevels.levels.length - 1].toFixed(3);
+  const range = hstate.anomaly ? `−${top} to +${top}` : `${+hLevels.levels[0].toFixed(3)}–${top}`;
   const contours = `contours every ${+hLevels.step.toFixed(3)}`;
   const season = hShownSeason();
+  const clim = hstate.anomaly
+    ? ` Anomaly from each station's ${state.mode === "month" ? "calendar-month" : "seasonal"} mean over the whole ${hSourceWord()} record ` +
+      `(${hSrc().years[0]}–${hSrc().years[1]}), stations with at least ${ANOMALY_MIN_YEARS} years.`
+    : "";
   if (hstate.scale === "floating") {
-    $("hydro-scale-note").textContent = `Floating: ${range}, fitted to this map (${contours}). Colours compare within this map only.`;
+    $("hydro-scale-note").textContent = `Floating${hstate.anomaly ? ", symmetric about zero" : ""}: ${range}, fitted to this map (${contours}). Colours compare within this map only.${clim}`;
     return;
   }
   const [a, b] = hstate.compare || [];
@@ -744,7 +847,7 @@ function renderHydroLegend() {
   const shown = hShownYear();
   const outside = shown < a || shown > b ? ` This map (${shown}) is outside the years compared, so it may pass the ends.` : "";
   $("hydro-scale-note").textContent = hLevels.fixed
-    ? `Fixed for comparison: ${range} (${contours}), spanning every station value in the ${hLevels.maps} ${which} of ${years}, so those maps share colours and contour levels.${outside}`
+    ? `Fixed for comparison${hstate.anomaly ? ", symmetric about zero" : ""}: ${range} (${contours}), spanning every station value in the ${hLevels.maps} ${which} of ${years}, so those maps share colours and contour levels.${outside}${clim}`
     : `No ${hSourceWord()} data for ${years}${hstate.scale === "season" ? ` in ${season}` : ""}; showing a floating scale.`;
 }
 
@@ -767,8 +870,14 @@ function hydroSeries(st) {
   const d = hData(), col = hVar().column, periods = hSrc().periods;
   const rows = [];
   for (let i = 0; i < d.p.length; i++) if (d.st[i] === st && d[col][i] !== null) rows.push(i);
+  // Anomalies: each point minus the station's climatology for its month or season.
+  const clim = hstate.anomaly ? climatology() : null;
+  const anom = (list) => (clim ? list.flatMap((r) => {
+    const c = clim.get(`${st}|${r.slot}`);
+    return c === undefined ? [] : [{ ...r, v: r.v - c.mean }];
+  }) : list);
   if (state.mode === "month") {
-    return rows.map((i) => ({ p: d.p[i], x: periods[d.p[i]].year + (periods[d.p[i]].month - 0.5) / 12, v: d[col][i], casts: d.n[i] }));
+    return anom(rows.map((i) => ({ p: d.p[i], x: periods[d.p[i]].year + (periods[d.p[i]].month - 0.5) / 12, v: d[col][i], casts: d.n[i], slot: periods[d.p[i]].month })));
   }
   const by = new Map();
   for (const i of rows) {
@@ -777,11 +886,11 @@ function hydroSeries(st) {
     if (!seasonMatches(season)) continue;
     const step = { season, year: x.year + (x.month === 12 ? 1 : 0) };
     const k = `${step.year}-${season}`;
-    const r = by.get(k) || { step, x: seasonStart(season, step.year) + 1.5 / 12, sum: 0, months: 0, casts: 0 };
+    const r = by.get(k) || { step, slot: season, x: seasonStart(season, step.year) + 1.5 / 12, sum: 0, months: 0, casts: 0 };
     r.sum += d[col][i]; r.months += 1; r.casts += d.n[i];
     by.set(k, r);
   }
-  return [...by.values()].map((r) => ({ ...r, v: r.sum / r.months })).sort((a, b) => a.x - b.x);
+  return anom([...by.values()].map((r) => ({ ...r, v: r.sum / r.months }))).sort((a, b) => a.x - b.x);
 }
 
 function renderHydroChart() {
@@ -800,7 +909,7 @@ function renderHydroChart() {
     return;
   }
   const series = hydroSeries(st);
-  $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — ${hSrc().label} ${hVar().label.toLowerCase()}${hUnits()} at ${hstate.depth} m (` +
+  $("station-title").textContent = `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)} — ${hSrc().label} ${hLabel().toLowerCase()}${hUnits()} at ${hstate.depth} m (` +
     (state.mode === "month" ? `${series.length} survey months)` : `${state.season === "sequence" ? "all seasons" : state.season}, ${series.length} seasons)`);
   const box = $("station-chart");
   const W = box.clientWidth || 600, H = box.clientHeight || 180;
@@ -808,19 +917,25 @@ function renderHydroChart() {
   const parts = [];
   if (!series.length) { box.innerHTML = ""; return; }
   const vs = series.map((d) => d.v);
-  const { levels } = niceLevels(Math.min(...vs), Math.max(...vs));
+  // Anomalies: a symmetric axis, labelled through zero.
+  const span = Math.max(...vs.map(Math.abs), 0.01);
+  const { levels, step } = hstate.anomaly ? niceLevels(-span, span) : niceLevels(Math.min(...vs), Math.max(...vs));
   const y0 = levels[0], y1 = levels[levels.length - 1];
   const x0 = hSrc().years[0] - 1, x1 = hSrc().years[1] + 1;
   const sx = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r);
   const sy = (v) => H - m.b - ((v - y0) / (y1 - y0)) * (H - m.t - m.b);
-  const every = Math.ceil(levels.length / 6);
-  levels.forEach((v, i) => {
-    if (i % every) return;
+  // Gridlines on multiples of a tick step, so zero is always one of them.
+  const tick = step * Math.ceil(levels.length / 6);
+  levels.forEach((v) => {
+    if (Math.abs(v / tick - Math.round(v / tick)) > 1e-6) return;
     parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${sy(v)}" y2="${sy(v)}" stroke="#ecebe6"/>`);
-    parts.push(`<text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end" font-size="11" fill="#85837c">${+v.toFixed(3)}</text>`);
+    parts.push(`<text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end" font-size="11" fill="#85837c">${signedTick(v)}</text>`);
   });
   for (let yr = Math.ceil(x0 / 10) * 10; yr <= x1; yr += 10) {
     parts.push(`<text x="${sx(yr)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#85837c">${yr}</text>`);
+  }
+  if (hstate.anomaly && y0 < 0 && y1 > 0) {
+    parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${sy(0)}" y2="${sy(0)}" stroke="#85837c" stroke-width="1.2"/>`);
   }
   if (state.mode === "month" && hAvailable.length) {
     const p = hSrc().periods[hAvailable[hstate.periodPos]];
@@ -853,8 +968,8 @@ function renderHydroChart() {
     if (!d) { tip.hidden = true; return; }
     tip.hidden = false;
     tip.textContent = d.step
-      ? `${seasonText(d.step)}: ${hFmt(d.v)}${hUnits()} (${d.months > 1 ? `mean of ${d.months} survey months` : "1 survey month"}, ${d.casts} cast${d.casts > 1 ? "s" : ""})`
-      : `${hPeriodText(d.p)}: ${hFmt(d.v)}${hUnits()} (${d.casts} cast${d.casts > 1 ? "s" : ""})`;
+      ? `${seasonText(d.step)}: ${hSigned(d.v)}${hUnits()} (${d.months > 1 ? `mean of ${d.months} survey months` : "1 survey month"}, ${d.casts} cast${d.casts > 1 ? "s" : ""})`
+      : `${hPeriodText(d.p)}: ${hSigned(d.v)}${hUnits()} (${d.casts} cast${d.casts > 1 ? "s" : ""})`;
     const rect = svg.getBoundingClientRect();
     tip.style.left = `${Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, (sx(d.x) / W) * rect.width - tip.offsetWidth / 2))}px`;
     tip.style.top = `${(sy(d.v) / H) * rect.height - 30}px`;
@@ -935,6 +1050,7 @@ function fillHydroDepths() {
 
 // Hash: the hydrography part.
 function writeHydroHash(params) {
+  if (hstate.anomaly) params.set("layer", "anomaly");
   params.set("src", hstate.source);
   params.set("var", hstate.variable);
   params.set("depth", hstate.depth);

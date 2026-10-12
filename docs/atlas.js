@@ -788,9 +788,22 @@ function setMode(mode) {
 
 // Ichthyoplankton or hydrography. The time shown carries across; the
 // species controls stay for the hydrography's optional ichthyoplankton overlay.
-function setLayer(layer) {
-  if (layer === state.layer) return;
+// choice: "ichthyo", "hydro" or "anomaly" (the hydrography view showing
+// departures from climatology).
+function setLayer(choice) {
+  const layer = choice === "ichthyo" ? "ichthyo" : "hydro";
+  const anomaly = choice === "anomaly";
+  if (layer === state.layer) {
+    if (layer === "hydro" && anomaly !== hstate.anomaly) {
+      stopPlay();
+      hstate.anomaly = anomaly;
+      updateLayerControls();
+      render();
+    }
+    return;
+  }
   stopPlay();
+  hstate.anomaly = anomaly;
   // The selected station carries across by its "line station" key.
   if (layer === "hydro") {
     hydroPendingTime = ichthyoTime();
@@ -817,13 +830,15 @@ function setLayer(layer) {
 
 function updateLayerControls() {
   const hydro = state.layer === "hydro";
-  setToggle("layer-toggle", state.layer);
+  setToggle("layer-toggle", !hydro ? "ichthyo" : hstate.anomaly ? "anomaly" : "hydro");
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
   renderHighCounts();   // the distribution panels stay open in both views
-  document.querySelector(".subtitle").textContent = hydro
+  document.querySelector(".subtitle").textContent = hydro && hstate.anomaly
+    ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    : hydro
     ? "Temperature, salinity, density, oxygen and nutrients from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
 }
@@ -1521,7 +1536,8 @@ function readHash() {
     const shown = state.season === "sequence" ? params.get("shown") : state.season;
     seasonSteps = [{ season: SEASON_LABEL[shown] ? shown : "winter", year }];
   }
-  if (params.get("layer") === "hydro") state.layer = "hydro";
+  if (params.get("layer") === "hydro" || params.get("layer") === "anomaly") state.layer = "hydro";
+  hstate.anomaly = params.get("layer") === "anomaly";
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
