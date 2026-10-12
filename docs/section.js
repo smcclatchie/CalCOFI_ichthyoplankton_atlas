@@ -115,22 +115,32 @@ async function loadSection() {
   return scache.get(key);
 }
 
-// The line's stations, with their distance (km) from the inshore-most one;
-// the section spans the regularly occupied ones (at least 10% as many survey
-// months as the most-occupied station).
+// Nominal position of a CalCOFI line and station: the grid is straight in
+// Mercator, rotated 30 degrees, with line 80 station 60 at 34.15 N, 121.15 W;
+// a line unit is 12 nm along bearing 150, a station unit 4 nm along bearing
+// 240 (rhumb lines; Weber & Moore 2013, NOAA-TM-NMFS-SWFSC-509).
+const NM_KM = 1.852;
+function nominalPosition(line, station) {
+  const rad = Math.PI / 180, psi = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * rad) / 2)) / rad;
+  const lat1 = 34.15 - 0.2 * Math.cos(30 * rad) * (line - 80);
+  const lat = lat1 - (1 / 15) * Math.sin(30 * rad) * (station - 60);
+  const lon = -121.15 - Math.tan(30 * rad) * (psi(lat1) - psi(34.15)) + Math.tan(60 * rad) * (psi(lat) - psi(lat1));
+  return { lat, lon };
+}
+
+// The line's stations at their nominal positions (not the casts' own, which
+// wander like a ship's track), with their distance (km) from the inshore-most
+// one along the line (4 nm per station unit); the section spans the regularly
+// occupied ones (at least 10% as many survey months as the most-occupied
+// station).
 function lineGeometry(d) {
-  const all = hSrc().stations.map((s, i) => ({ ...s, i })).filter((s) => s.line === sstate.line);
+  const all = hSrc().stations.map((s, i) => ({ ...s, ...nominalPosition(s.line, s.station), i })).filter((s) => s.line === sstate.line);
   if (!all.length) return null;
   const visits = new Map();
   for (let i = 0; i < d.p.length; i++) if (d.z[i] === 0) visits.set(d.st[i], (visits.get(d.st[i]) || 0) + 1);
   const top = Math.max(0, ...visits.values());
   const origin = all.reduce((a, b) => (b.station < a.station ? b : a));
-  const km = (a, b) => {
-    const r = Math.PI / 180, dlat = (b.lat - a.lat) * r, dlon = (b.lon - a.lon) * r;
-    const h = Math.sin(dlat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dlon / 2) ** 2;
-    return 2 * 6371 * Math.asin(Math.sqrt(h));
-  };
-  const x = new Map(all.map((s) => [s.i, km(origin, s)]));
+  const x = new Map(all.map((s) => [s.i, (s.station - origin.station) * 4 * NM_KM]));
   const core = all.filter((s) => (visits.get(s.i) || 0) >= 0.1 * top);
   const xmax = Math.max(...(core.length ? core : all).map((s) => x.get(s.i))) * 1.03;
   return { stations: all.filter((s) => x.get(s.i) <= xmax), x, xmax };
