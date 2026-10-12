@@ -4,10 +4,12 @@
 // (or stability N2, or geostrophic velocity); in the Water masses view, the
 // map's water-mass fraction.
 //
-// The section's horizontal axis is tied to the map: each station is drawn
-// directly below its position on the map, so the section pans and zooms with
-// the map (the line runs roughly straight in the map's projection, so position
-// along it maps linearly to screen x).
+// The section's horizontal axis is tied to the map's: offshore to the left,
+// the coast to the right, at the map's own scale along the line (the line runs
+// roughly straight in the map's projection, so position along it maps linearly
+// to screen x), so the section zooms and pans with the map. It never shrinks
+// below filling its panel (at a low zoom the whole line fills it, coast at
+// the right edge), and never pans past either end of the line.
 //
 // Data (docs/data/hydro/<source>/line<L>.json, build_hydro_data.py): station x
 // survey month x standard-depth means: p, st, z (depth index), n, t, s, d
@@ -332,7 +334,13 @@ function drawSection() {
   const pts = geo.stations.map((s) => [geo.x.get(s.i), map.project([s.lon, s.lat]).x + mapRect.left - boxRect.left]);
   const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
   const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
-  const b = sxx > 0 ? sxy / sxx : -1, a0 = my - b * mx;
+  // the map's scale and position, kept within the plot: at least the whole line
+  // across it, coast at the right edge; zoomed in, panning with the map but
+  // never past either end of the line
+  const L = m.l, R = W - m.r, fit = (R - L) / geo.xmax;
+  let b = -Math.abs(sxx > 0 ? sxy / sxx : fit), a0 = my - b * mx;
+  if (-b <= fit) { b = -fit; a0 = R; }
+  else a0 = Math.min(Math.max(a0, R), L - b * geo.xmax);
   const px = (km) => a0 + b * km, py = (z) => m.t + (z / SECTION_DEPTH) * ph;
   const path = (rings) => rings.map((r) => "M" + r.map(([x, z]) => `${x.toFixed(2)},${py(z).toFixed(1)}`).join("L")).join("");
   const font = 'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"';
