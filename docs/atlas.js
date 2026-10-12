@@ -844,8 +844,12 @@ function updateLayerControls() {
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
   // Sections belong to the Hydrography view.
-  document.querySelectorAll(".hydro-view-only").forEach((e) => { e.hidden = !(hydro && hView() === "hydro"); });
-  if (!(hydro && hView() === "hydro")) { $("section-panel").hidden = true; document.querySelector(".map-area").classList.remove("section-open"); }
+  // Sections: Hydrography view, and the water-mass fractions in Water masses.
+  document.querySelectorAll(".hydro-view-only").forEach((e) => { e.hidden = !(hydro && (hView() === "hydro" || hView() === "watermass")); });
+  if (!(hydro && (hView() === "hydro" || hView() === "watermass"))) {
+    $("section-panel").hidden = true;
+    document.querySelector(".map-area").classList.remove("section-open", "panels-split");
+  }
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });

@@ -16,10 +16,12 @@ sampled area. Colour scales float with each map or are fixed for comparison
 across chosen years (all seasons, or only the season shown), and the
 ichthyoplankton for the same month or season can be overlaid. Variables:
 temperature, salinity, density, dissolved oxygen, nitrate and silicate. Its
-Section display draws depth-distance sections along CalCOFI lines 90, 80 and
-60 (temperature, salinity, sigma-theta, oxygen, stability N², and geostrophic
-velocity across the line relative to 500 dbar from CalCOFI's dynamic
-heights) for the month or season shown.
+Section display draws depth sections along CalCOFI lines 90 and 80 for the
+month or season shown -- the map's variable, stability (N²), or geostrophic
+velocity across the line relative to 500 dbar from CalCOFI's dynamic heights
+-- with each station directly below its place on the map, so the section pans
+and zooms with the map. The Water masses view draws sections of the
+water-mass fractions.
 
 **Derived variables** maps the depth of the σθ = 25.0 surface, the
 nitricline (steepest nitrate gradient), spiciness and N² (between standard

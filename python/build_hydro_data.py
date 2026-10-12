@@ -85,8 +85,9 @@ DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES, **FRACTION_VARIABLES}
 # station x survey month x standard-depth values, in <source>/line<L>.json.
 # dynamic_height (CalCOFI's, accumulated from the surface) lets the atlas
 # compute geostrophic velocity between neighbouring stations.
-SECTION_LINES = [90.0, 80.0, 60.0]
-SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "n2": "n2", "dynamic_height": "dh"}
+SECTION_LINES = [90.0, 80.0]
+SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "nitrate": "no3", "silicate": "sio3",
+                   "n2": "n2", "dynamic_height": "dh", "wm_psa": "psa", "wm_pew": "pew", "wm_npcw": "npcw"}
 # Water masses view: properties on two isopycnals, from CTD casts only
 # (the companion repo's build_isopycnal_properties.py), written to
 # ctd/iso<surface>.json.

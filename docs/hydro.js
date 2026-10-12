@@ -852,6 +852,10 @@ async function renderHydro() {
   renderHydroLegend();
   if (showFish) renderLegend();
   renderHighCounts();
+  // The section and the station chart share the bottom of the map when both are open.
+  const area = document.querySelector(".map-area");
+  area.classList.toggle("section-open", sectionShown());
+  area.classList.toggle("panels-split", sectionShown() && hstate.stationKey !== null);
   if (hstate.stationKey !== null) renderHydroChart();
   else {
     $("station-panel").hidden = true;
@@ -1270,7 +1274,7 @@ function writeHydroHash(params) {
   if (hstate.overlay) params.set("overlay", "1");
   if (hstate.stationKey !== null) params.set("hst", hstate.stationKey);
   if (hstate.chart === "hydro") params.set("chart", "hydro");
-  if (hView() === "hydro") writeSectionHash(params);
+  if (hView() === "hydro" || hView() === "watermass") writeSectionHash(params);
   if (!hmeta) return;
   if (state.mode === "month" && hAvailable.length) params.set("survey", hSrc().periods[hAvailable[hstate.periodPos]].key);
   if (state.mode === "season" && hSteps.length) {
