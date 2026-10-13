@@ -52,7 +52,9 @@ SEASONS = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: 
 NET_LABELS = {"C1": "C1: CalCOFI 1 m ring net (oblique), to 1978", "CB": "CB: CalCOFI bongo (oblique), 1978 onward",
               "KR": "CalCOFI oblique net tows (krill sorted by Brinton & Townsend)",
               "PR": "PRPOOS net (vertical, 0–210 m), ZooScan imaging",
-              "CF": "CUFES: Continuous Underway Fish Egg Sampler (pumped, 3 m depth)"}
+              "CF": "CUFES: Continuous Underway Fish Egg Sampler (pumped, 3 m depth)",
+              "VR": "Surface water samples, pooled by region (Venrick inverted-microscope counts)",
+              "FC": "CTD-rosette bottles, flow cytometry (CCE-LTER)"}
 
 # Per dataset: the stage list (key, menu label, noun for "with ..." / "no ...",
 # legend title, units), whether absences count as zero, and the source.
@@ -86,6 +88,25 @@ DATASETS = {
         "zeros": True,
         "track": True,
         "source": "SWFSC CUFES (CalCOFI.io swfsc_cufes), egg concentration",
+    },
+    "venrick": {
+        "label": "Phytoplankton (Venrick)",
+        "title": "Phytoplankton (Venrick microscope counts, surface, pooled by region)",
+        "taxonWord": "taxon",
+        "stages": [{"key": "surface", "label": "Surface", "noun": "cells", "title": "Cells", "units": "per L"}],
+        "zeros": True,
+        "logScale": True,
+        "source": "CalCOFI phytoplankton (CalCOFI.io calcofi_phytoplankton): regional pools, cruise month",
+    },
+    "pico": {
+        "label": "Picoplankton and bacteria",
+        "title": "Picoplankton and bacteria (flow cytometry, CCE-LTER)",
+        "taxonWord": "group",
+        "stages": [{"key": k, "label": k, "noun": "cells", "title": "Cells", "units": "per mL", "where": k.replace("-", "–")}
+                   for k in ["0-15 m", "20-30 m", "40-50 m", "60-80 m", "below 80 m"]],
+        "zeros": False,
+        "logScale": True,
+        "source": "CCE-LTER picoplankton and bacteria (CalCOFI.io cce-lter_picoplankton-bacteria)",
     },
     "zooscan": {
         "label": "ZooScan",
@@ -221,6 +242,7 @@ def build(key, spec, tows, vals, out_dir, labels=None, order=None):
         "stages": stage_keys,
         "stageInfo": spec["stages"],
         **({"track": True} if spec.get("track") else {}),
+        **({"logScale": True} if spec.get("logScale") else {}),
         "lines": [],
     }
     occ_keys = ["period", "sampling", "net_type", "site_key"]
@@ -256,7 +278,7 @@ def build(key, spec, tows, vals, out_dir, labels=None, order=None):
         sci, com = (labels or {}).get(tk) or (names.loc[tk, "scientific_name"], names.loc[tk, "common_name"])
         is_group = tk.startswith("group:")
         taxa.append({"id": i, "key": tk, "scientific": sci if isinstance(sci, str) else tk,
-                     "common": com if isinstance(com, str) else None, "family": None,
+                     "common": com if isinstance(com, str) and com.lower() != str(sci).lower() else None, "family": None,
                      **({"group": True, "members": sci} if is_group else {}),
                      "rows": int(len(t)), "stageRows": [int((t.stage == s).sum()) for s in stage_keys],
                      "topNet": idx["n"][t.net_type.value_counts().index[0]],
@@ -303,6 +325,19 @@ def main():
     cv["common_name"] = cv.taxon_key.map({"worms:293496": "Other fish eggs"}).fillna(cv.common_name)
     build("cufes", DATASETS["cufes"], ct, cv, args.out_dir,
           order=["worms:272286", "worms:217452", "worms:273305", "worms:272458", "worms:574540", "worms:293496"])
+
+    # Venrick phytoplankton: each region a "station" (no line or station number)
+    vt = q("venrick_samples.parquet").assign(net_type="VR", line=np.nan, station=np.nan)
+    vt["site_key"] = vt.region
+    vv = q("venrick_values.parquet").assign(stage="surface")
+    build("venrick", DATASETS["venrick"], vt, vv, args.out_dir)
+
+    # Picoplankton and bacteria: depth layers as "stages"
+    pt = q("pico_casts.parquet").assign(net_type="FC")
+    pv = q("pico_values.parquet")
+    build("pico", DATASETS["pico"], pt, pv, args.out_dir,
+          order=["worms:345515", "worms:160572", "cce-lter_picoplankton-bacteria:picoeukaryotes",
+                 "cce-lter_picoplankton-bacteria:het_bacteria"])
 
     zg = group_values(zv, ZOOSCAN_GROUPS, stages=["zooscan_abundance", "zooscan_biomass_carbon"])
     build("zooscan", DATASETS["zooscan"], zt, pd.concat([zv, zg], ignore_index=True), args.out_dir, labels=ZOOSCAN_LABELS,

@@ -60,15 +60,22 @@ let taxonCache = new Map();    // taxon id -> Map(key -> abundance), for the dat
 // (docs/data/zoo/<key>/, build_zooplankton_data.py) in the same layout, with
 // its own stages ("stageInfo": krill life stages, ZooScan measurements, ...),
 // shown with the same machinery in the Zooplankton view and the overlay.
-const DATASETS = { ichthyo: "Ichthyoplankton", krill: "Krill", zooscan: "ZooScan", volume: "Plankton volume", cufes: "CUFES" };
+const DATASETS = { ichthyo: "Ichthyoplankton", krill: "Krill", zooscan: "ZooScan", volume: "Plankton volume", cufes: "CUFES",
+  venrick: "Phytoplankton", pico: "Picoplankton" };
 // Track datasets (CUFES): samples along the ship's track, each its own point, with no line or station.
 const isTrack = () => Boolean(meta.track);
+// What a dataset's sampled places are called: stations, underway samples, regional pools.
+const placeWord = (stations) => (isTrack() ? "underway samples" : dataset === "venrick" ? "regional pools" : stations);
 let dataset = "ichthyo";
 let lastZoo = "krill";                     // the Zooplankton button opens the last one used
 let lastFish = "ichthyo";                  // and the Ichthyoplankton button (net tows or CUFES)
-// Each view's datasets: fish eggs and larvae (net tows, CUFES underway eggs), zooplankton.
-const FISH_SETS = ["ichthyo", "cufes"], ZOO_SETS = ["krill", "zooscan", "volume"];
+let lastPhyto = "pico";                    // and the Phytoplankton button
+// Each view's datasets: fish eggs and larvae (net tows, CUFES underway eggs),
+// zooplankton, phytoplankton (Venrick counts, picoplankton and bacteria).
+const FISH_SETS = ["ichthyo", "cufes"], ZOO_SETS = ["krill", "zooscan", "volume"], PHYTO_SETS = ["venrick", "pico"];
 const isFish = (ds = dataset) => FISH_SETS.includes(ds);
+// The view a dataset belongs to, as the Map button's value.
+const viewOf = (ds = dataset) => (FISH_SETS.includes(ds) ? "ichthyo" : PHYTO_SETS.includes(ds) ? "phyto" : "zoo");
 const datasetCache = new Map();            // key -> {meta, occ, taxa, cache}
 const datasetChoice = new Map();           // key -> {taxon, net, stage, sampling} chosen there, restored on return
 const dataDir = (ds = dataset) => (ds === "ichthyo" ? "" : `zoo/${ds}/`);
@@ -115,7 +122,7 @@ async function loadDataset(ds) {
   }
   ({ meta, occ, taxa, cache: taxonCache } = datasetCache.get(ds));
   dataset = ds;
-  if (isFish(ds)) lastFish = ds; else lastZoo = ds;
+  ({ ichthyo: () => { lastFish = ds; }, zoo: () => { lastZoo = ds; }, phyto: () => { lastPhyto = ds; } })[viewOf(ds)]();
   if (hstate.overlay) $("hydro-overlay").value = ds;
   indexOccupations();
   lineAxes = null;
@@ -153,8 +160,10 @@ function fillDatasetControls() {
   fillSelect($("sampling-select"), meta.samplings.map(titleCase), Math.min(state.sampling, meta.samplings.length - 1));
   fillSelect($("net-select"), meta.nets.map((n) => n.label), Math.min(state.net, meta.nets.length - 1));
   $("dataset-select").value = dataset;
-  $("species-label").textContent = { ichthyo: "Species", krill: "Species", zooscan: "Zooplankton class", volume: "Measure", cufes: "Species" }[dataset];
-  $("stage-label").textContent = dataset === "ichthyo" || dataset === "krill" || dataset === "cufes" ? "Life stage" : "Measurement";
+  $("species-label").textContent = { ichthyo: "Species", krill: "Species", zooscan: "Zooplankton class", volume: "Measure", cufes: "Species",
+    venrick: "Taxon", pico: "Group" }[dataset];
+  $("stage-label").textContent = dataset === "ichthyo" || dataset === "krill" || dataset === "cufes" ? "Life stage"
+    : dataset === "pico" ? "Depth" : dataset === "venrick" ? "Sample" : "Measurement";
   trackSymbols();
   $("net-hint").textContent = dataset === "ichthyo" || dataset === "volume"
     ? "Values from different nets are not comparable, so one net is shown at a time." : meta.nets[0].label;
@@ -232,7 +241,7 @@ function templateFor(max) {
   // CUFES concentrations (eggs per m³) are mostly below 1 (half to 98% by
   // species): the 1-2-5 template scaled by a power of 10, up or down, so the
   // classes span three decades below the reference, sub-1 values included.
-  if (meta?.track) return SCALE_TEMPLATES[4].map((v) => +(v * 10 ** Math.ceil(Math.log10(max / 1000) - 1e-9)).toPrecision(3));
+  if (meta?.track || meta?.logScale) return SCALE_TEMPLATES[4].map((v) => +(v * 10 ** Math.ceil(Math.log10(max / 1000) - 1e-9)).toPrecision(3));
   const t = SCALE_TEMPLATES.find((x) => max <= x[x.length - 1]);
   if (t) return t;
   const k = Math.ceil(Math.log10(max / 1000) - 1e-9);
@@ -279,7 +288,7 @@ const unitsLabel = () => {
 const valueTitle = () => {
   const x = stageInfo();
   if (!x) return `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
-  return x.units.startsWith("per") ? `${x.title} ${x.units}` : `${x.title}, ${x.units}`;
+  return (x.units.startsWith("per") ? `${x.title} ${x.units}` : `${x.title}, ${x.units}`) + (x.where ? `, ${x.where}` : "");
 };
 // The stage (or measurement) as a label: "Larvae", "Adults", "Carbon biomass".
 const stageLabel = () => stageInfo()?.label ?? titleCase(stageWord());
@@ -296,7 +305,7 @@ const titleCase = (s) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()
 
 function stationName(st) {
   const s = meta.stations[st];
-  if (s.line === null) return `Underway sample, ${s.lat.toFixed(3)}°N ${(-s.lon).toFixed(3)}°W`;
+  if (s.line === null) return `${isTrack() ? "Underway sample" : "Regional pool"}, ${s.lat.toFixed(3)}°N ${(-s.lon).toFixed(3)}°W`;
   return `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)}`;
 }
 
@@ -468,12 +477,12 @@ function render() {
     const p = available[state.periodPos];
     const ships = available.length ? meta.periods[p].ships.map(titleCase).join(", ") : "";
     $("period-label").textContent = available.length
-      ? `${periodText(p)} · ${ships}\n${sampled} ${isTrack() ? "underway samples" : "stations sampled"}, ${withCatch} with ${stageWord()}`
+      ? `${periodText(p)} · ${ships}\n${sampled} ${placeWord("stations sampled")}, ${withCatch} with ${stageWord()}`
       : "No surveys with this net and sampling type.";
   } else {
     const months = seasonPeriods();
     $("period-label").textContent = months.length
-      ? `${seasonText()}\n${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · ${sampled} ${isTrack() ? "underway samples" : "stations"}, ${withCatch} with ${stageWord()}`
+      ? `${seasonText()}\n${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · ${sampled} ${placeWord("stations")}, ${withCatch} with ${stageWord()}`
       : `No ${state.season === "sequence" ? "" : `${state.season} `}surveys with this net and sampling type.`;
   }
   renderMapLabel();
@@ -542,6 +551,7 @@ function renderLineLabels(fc) {
 // ending inside the pattern (inshore, along the curving coast) and labels that
 // would overlap one already placed are left out.
 function placeLineLabels(stationList, axes, stAxes) {
+  stationList = stationList.filter((s) => s.line !== null && s.line !== undefined);      // regional pools have none
   for (const m of lineMarkers) m.remove();
   lineMarkers = [];
   lastLabelled = [stationList, axes, stAxes];
@@ -668,7 +678,7 @@ function showMapMessage(text, detail = "") {
 
 // "No CB-net tows (standard sampling) in this season".
 function noTowText() {
-  const what = dataset === "ichthyo" || dataset === "volume" ? `${meta.nets[state.net].code}-net` : dataset === "krill" ? "krill" : DATASETS[dataset];
+  const what = dataset === "ichthyo" || dataset === "volume" ? `${meta.nets[state.net].code}-net` : dataset === "krill" ? "krill" : dataset === "venrick" ? "phytoplankton" : dataset === "pico" ? "flow-cytometry" : DATASETS[dataset];
   return `No ${what} tows (${meta.samplings[state.sampling]} sampling) in this ${state.mode === "season" ? "season" : "month"}`;
 }
 
@@ -1050,17 +1060,18 @@ function setMode(mode) {
 // pick their overlay with their own Overlay menu.
 async function chooseDataset(ds) {
   if (state.layer === "hydro") { await switchDataset(ds); return; }
-  await setLayer(isFish(ds) ? "ichthyo" : "zoo", ds);
+  await setLayer(viewOf(ds), ds);
 }
 
 async function setLayer(choice, viewDataset) {
-  // "ichthyo" / "zoo": the same machinery, each with its own datasets.
-  const want = choice === "zoo" ? (viewDataset || lastZoo) : choice === "ichthyo" ? (viewDataset || lastFish) : null;
+  // "ichthyo" / "zoo" / "phyto": the same machinery, each with its own datasets.
+  const want = choice === "zoo" ? (viewDataset || lastZoo) : choice === "phyto" ? (viewDataset || lastPhyto)
+    : choice === "ichthyo" ? (viewDataset || lastFish) : null;
   if (want && want !== dataset) {
     await switchDataset(want);
     if (state.layer !== "hydro") { updateLayerControls(); render(); return; }
   }
-  if (choice === "zoo") choice = "ichthyo";        // the map layer is the same
+  if (choice === "zoo" || choice === "phyto") choice = "ichthyo";        // the map layer is the same
   const layer = choice === "ichthyo" ? "ichthyo" : "hydro";
   if (layer === state.layer) {
     if (layer === "hydro" && choice !== hView()) {
@@ -1102,7 +1113,7 @@ async function setLayer(choice, viewDataset) {
 
 function updateLayerControls() {
   const hydro = state.layer === "hydro";
-  setToggle("layer-toggle", !hydro ? (isFish() ? "ichthyo" : "zoo") : hView());
+  setToggle("layer-toggle", !hydro ? viewOf() : hView());
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
@@ -1118,7 +1129,7 @@ function updateLayerControls() {
   // Ichthyoplankton and Zooplankton are separate views, each with its own datasets
   // in the Dataset menu; the hydrography's overlay has its own menu.
   $("dataset-box").hidden = hydro;
-  for (const o of $("dataset-select").options) o.hidden = isFish() !== isFish(o.value);
+  for (const o of $("dataset-select").options) o.hidden = viewOf() !== viewOf(o.value);
   renderHighCounts();   // the distribution panels stay open in both views
   document.querySelectorAll(".watermass-only").forEach((e) => { e.hidden = !(hydro && hView() === "watermass"); });
   if (!(hydro && hView() === "watermass")) $("ternary-panel").hidden = true;
