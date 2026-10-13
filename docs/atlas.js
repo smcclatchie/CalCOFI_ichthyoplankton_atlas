@@ -229,6 +229,10 @@ function classOf(a) {
 // 1-2-5 template (0, 1, 2, 5 ... 1000) is scaled up by a power of 10, so the
 // classes keep 1-2-5 steps over the top three decades, where such values lie.
 function templateFor(max) {
+  // CUFES concentrations (eggs per m³) are mostly below 1 (half to 98% by
+  // species): the 1-2-5 template scaled by a power of 10, up or down, so the
+  // classes span three decades below the reference, sub-1 values included.
+  if (meta?.track) return SCALE_TEMPLATES[4].map((v) => +(v * 10 ** Math.ceil(Math.log10(max / 1000) - 1e-9)).toPrecision(3));
   const t = SCALE_TEMPLATES.find((x) => max <= x[x.length - 1]);
   if (t) return t;
   const k = Math.ceil(Math.log10(max / 1000) - 1e-9);
@@ -701,7 +705,7 @@ function colourBar(width, noTow = noTowShown > 0) {
   const rMax = CLASSES[CLASSES.length - 1].radius + 1.3, top = 2, bh = 2 * rMax + 2, H = top + bh + 16;
   const bw = (width - x0 - 18) / CLASSES.length;   // right margin fits "300+"
   const cy = top + bh / 2;
-  const label = (v) => (v >= 1e6 ? `${v / 1e6}M` : v >= 1000 ? `${v / 1000}k` : String(v));
+  const label = (v) => (v >= 1e6 ? `${v / 1e6}M` : v >= 1000 ? `${v / 1000}k` : String(+v.toPrecision(3)));
   const last = b.length - 1;
   const parts = [
     `<circle cx="12" cy="${cy}" r="${ZERO.radius}" fill="${ZERO.color}" stroke="${DISC}" stroke-width="0.6"/>`,
