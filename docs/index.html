@@ -37,6 +37,7 @@
         <span class="label">Map</span>
         <div class="segmented grid2" id="layer-toggle" role="radiogroup" aria-label="Map">
           <button type="button" role="radio" data-value="ichthyo" aria-checked="true">Ichthyoplankton</button>
+          <button type="button" role="radio" data-value="zoo" aria-checked="false">Zooplankton</button>
           <button type="button" role="radio" data-value="hydro" aria-checked="false">Hydrography</button>
           <button type="button" role="radio" data-value="derived" aria-checked="false">Derived</button>
           <button type="button" role="radio" data-value="anomaly" aria-checked="false">Anomalies</button>
@@ -94,11 +95,22 @@
 
       <section class="control hydro-only" hidden>
         <p class="hint">Station values are mapped as a Gaussian-weighted mean over 75 km (e-folding scale), so contours carry no detail finer than the stations support. The field is shown only within the sampled area.</p>
-        <label class="checkbox"><input type="checkbox" id="hydro-overlay"> Overlay ichthyoplankton</label>
+        <label class="checkbox"><input type="checkbox" id="hydro-overlay"> <span id="overlay-label">Overlay ichthyoplankton</span></label>
+        <p class="hint">The overlay shows the dataset chosen below: fish eggs and larvae or a zooplankton dataset.</p>
+      </section>
+
+      <section class="control fish-controls" id="dataset-box">
+        <label for="dataset-select">Dataset</label>
+        <select id="dataset-select">
+          <option value="ichthyo">Ichthyoplankton (fish eggs and larvae)</option>
+          <option value="krill">Krill (euphausiids)</option>
+          <option value="zooscan">ZooScan zooplankton</option>
+          <option value="volume">Plankton volume</option>
+        </select>
       </section>
 
       <section class="control fish-controls">
-        <label for="species-input">Species</label>
+        <label for="species-input" id="species-label">Species</label>
         <div class="species-picker">
           <input id="species-input" type="search" autocomplete="off" spellcheck="false"
                  placeholder="Common or scientific name" aria-autocomplete="list" aria-controls="species-list">
@@ -110,7 +122,7 @@
 
       <section class="control two-up fish-controls">
         <div>
-          <label for="stage-select">Life stage</label>
+          <label for="stage-select" id="stage-label">Life stage</label>
           <select id="stage-select"></select>
         </div>
         <div>
@@ -122,7 +134,7 @@
       <section class="control fish-controls">
         <label for="net-select">Net</label>
         <select id="net-select"></select>
-        <p class="hint">Abundance from different nets is not comparable, so one net is shown at a time.</p>
+        <p class="hint" id="net-hint">Abundance from different nets is not comparable, so one net is shown at a time.</p>
       </section>
 
       <section class="control">

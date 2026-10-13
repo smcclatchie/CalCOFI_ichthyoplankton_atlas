@@ -55,7 +55,17 @@ let lineMarkers = [];          // CalCOFI line- and station-number labels curren
 // stack labels against the coast.
 const MIN_LINE_STATIONS = 3;
 let occByPeriod;               // period index -> occupation row indices
-const taxonCache = new Map();  // taxon id -> Map(key -> abundance)
+let taxonCache = new Map();    // taxon id -> Map(key -> abundance), for the dataset shown (see loadDataset)
+// Datasets: the fish eggs and larvae (docs/data/), or a zooplankton dataset
+// (docs/data/zoo/<key>/, build_zooplankton_data.py) in the same layout, with
+// its own stages ("stageInfo": krill life stages, ZooScan measurements, ...),
+// shown with the same machinery in the Zooplankton view and the overlay.
+const DATASETS = { ichthyo: "Ichthyoplankton", krill: "Krill", zooscan: "ZooScan", volume: "Plankton volume" };
+let dataset = "ichthyo";
+let lastZoo = "krill";                     // the Zooplankton button opens the last one used
+const datasetCache = new Map();            // key -> {meta, occ, taxa, cache}
+const datasetChoice = new Map();           // key -> {taxon, net, stage, sampling} chosen there, restored on return
+const dataDir = (ds = dataset) => (ds === "ichthyo" ? "" : `zoo/${ds}/`);
 let available = [];            // period indices sampled with the chosen sampling + net
 let playTimer = null;
 // A season or survey month with hydrography casts but no ichthyoplankton tows
@@ -69,7 +79,8 @@ const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------- data --
 
-const catchKey = (p, s, n, g, st) => ((((p * 2 + s) * 8 + n) * 2 + g) * 8192) + st;
+// Unique key for (survey month, sampling, net, stage, station), sized by the dataset's lists.
+const catchKey = (p, s, n, g, st) => ((((p * meta.samplings.length + s) * meta.nets.length + n) * meta.stages.length + g) * 8192) + st;
 
 async function getJSON(path) {
   const response = await fetch(DATA + path);
@@ -79,12 +90,67 @@ async function getJSON(path) {
 
 async function loadTaxon(id) {
   if (taxonCache.has(id)) return taxonCache.get(id);
-  const t = await getJSON(`taxa/${id}.json`);
+  const t = await getJSON(`${dataDir()}taxa/${id}.json`);
   const values = new Map();
   for (let i = 0; i < t.a.length; i++) values.set(catchKey(t.p[i], t.s[i], t.n[i], t.g[i], t.st[i]), t.a[i]);
   values.raw = t;              // column arrays, for the high-count distribution
   taxonCache.set(id, values);
   return values;
+}
+
+// Make dataset ds the one shown: its files (loaded once), its own taxon cache,
+// and the controls that depend on it.
+async function loadDataset(ds) {
+  if (!datasetCache.has(ds)) {
+    const dir = dataDir(ds);
+    const [m, o, t] = await Promise.all([getJSON(`${dir}meta.json`), getJSON(`${dir}occupations.json`), getJSON(`${dir}taxa.json`)]);
+    datasetCache.set(ds, { meta: m, occ: o, taxa: t, cache: new Map() });
+  }
+  ({ meta, occ, taxa, cache: taxonCache } = datasetCache.get(ds));
+  dataset = ds;
+  if (ds !== "ichthyo") lastZoo = ds;
+  $("overlay-label").textContent = `Overlay ${ds === "ichthyo" ? "ichthyoplankton" : DATASETS[ds] === "ZooScan" ? "ZooScan" : DATASETS[ds].toLowerCase()}`;
+  indexOccupations();
+  lineAxes = null;
+  stationAxes = null;
+  fillDatasetControls();
+}
+
+// Switch the dataset shown (keeping the time), restoring what was chosen there before.
+async function switchDataset(ds) {
+  if (ds === dataset) return;
+  stopPlay();
+  const t = ichthyoTime();
+  if (state.taxon) datasetChoice.set(dataset, { taxon: state.taxon.key, net: state.net, stage: state.stage, sampling: state.sampling });
+  state.station = null;
+  await loadDataset(ds);
+  const saved = datasetChoice.get(ds);
+  // A dataset's first visit: the bongo net where it has one (as for the fish), else its first.
+  state.net = saved?.net ?? Math.max(0, meta.nets.findIndex((n) => n.code === DEFAULT_NET));
+  state.stage = saved?.stage ?? (ds === "ichthyo" ? 1 : 0);
+  state.sampling = saved?.sampling ?? 0;
+  const taxon = taxa.find((x) => x.key === saved?.taxon) || defaultTaxon();
+  state.taxon = null;
+  updateAvailable();
+  updateSeasonSteps();
+  setIchthyoTime(t);
+  updateLayerControls();
+  await selectTaxon(taxon, !saved);
+}
+const defaultTaxon = () => (dataset === "ichthyo" ? taxa.find((t) => t.scientific === "Engraulis mordax") : null) || taxa[0];
+
+// The dataset's stage, sampling, net and species controls, and their labels.
+function fillDatasetControls() {
+  const info = meta.stageInfo;
+  fillSelect($("stage-select"), info ? info.map((x) => x.label) : meta.stages.map(titleCase), Math.min(state.stage, meta.stages.length - 1));
+  fillSelect($("sampling-select"), meta.samplings.map(titleCase), Math.min(state.sampling, meta.samplings.length - 1));
+  fillSelect($("net-select"), meta.nets.map((n) => n.label), Math.min(state.net, meta.nets.length - 1));
+  $("dataset-select").value = dataset;
+  $("species-label").textContent = { ichthyo: "Species", krill: "Species", zooscan: "Zooplankton class", volume: "Measure" }[dataset];
+  $("stage-label").textContent = dataset === "ichthyo" || dataset === "krill" ? "Life stage" : "Measurement";
+  $("net-hint").textContent = dataset === "ichthyo" || dataset === "volume"
+    ? "Values from different nets are not comparable, so one net is shown at a time." : meta.nets[0].label;
+  setupSpeciesSelect();
 }
 
 function indexOccupations() {
@@ -168,10 +234,26 @@ function computeScale(values) {
 // -------------------------------------------------------------- labels --
 
 const stageWord = (plural = true) => {
+  if (meta.stageInfo) return plural ? stageInfo().noun : meta.stages[state.stage];
   const stage = meta.stages[state.stage];
   return plural ? (stage === "egg" ? "eggs" : "larvae") : stage;
 };
-const unitsLabel = () => `${stageWord()} ${meta.nets[state.net].units}`;
+// Zooplankton datasets describe each stage (or measurement): label, noun, title, units.
+const stageInfo = () => meta.stageInfo?.[state.stage];
+// Value units: "larvae per 10 m²", "adults per m²", "mg C m⁻²", "mL per 1,000 m³".
+const unitsLabel = () => {
+  const x = stageInfo();
+  if (!x) return `${stageWord()} ${meta.nets[state.net].units}`;
+  return x.units.startsWith("per") && dataset !== "volume" ? `${x.noun} ${x.units}` : x.units;
+};
+// Legend title: "Larvae per 10 m²", "Adults per m²", "Carbon biomass, mg C m⁻²".
+const valueTitle = () => {
+  const x = stageInfo();
+  if (!x) return `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
+  return x.units.startsWith("per") ? `${x.title} ${x.units}` : `${x.title}, ${x.units}`;
+};
+// The stage (or measurement) as a label: "Larvae", "Adults", "Carbon biomass".
+const stageLabel = () => stageInfo()?.label ?? titleCase(stageWord());
 const fmt = (a) => (a >= 100 ? Math.round(a).toLocaleString() : a >= 1 ? a.toFixed(1) : a.toPrecision(2));
 // Groups (combined taxa, e.g. "Warm-water associated larvae") go by their name;
 // their members are listed in the species details and the map label.
@@ -501,11 +583,11 @@ function renderMapLabel() {
   const t = state.taxon;
   const net = meta.nets[state.net];
   const what = `<span class="species">${speciesHTML(t)}</span>` +
-    `${titleCase(stageWord())} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
+    `${stageLabel()} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
   if (ghost) {
     $("map-label").innerHTML = `<span class="when">${ghost.when}</span>${noTowText()}: ${ghost.stations.length} ${ghost.word} stations ` +
       `with casts are shown as open circles.<br>${what}` +
-      `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}`;
+      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}`;
     return;
   }
   if (state.mode === "month") {
@@ -514,14 +596,14 @@ function renderMapLabel() {
     const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
     $("map-label").innerHTML = `<span class="when">${periodText(available[state.periodPos])}</span>` +
       `Cruise${period.cruises.length > 1 ? "s" : ""} ${cruises}<br>${what}` +
-      `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}`;
+      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}`;
   } else {
     const months = seasonPeriods();
     if (!months.length) { $("map-label").innerHTML = ""; return; }
     const cruises = [...new Set(months.flatMap((p) => meta.periods[p].cruises.map((c) => c.key)))].join(", ");
     $("map-label").innerHTML = `<span class="when">${seasonText()}</span>` +
       `${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · cruise${cruises.includes(",") ? "s" : ""} ${cruises}<br>${what}` +
-      `<span class="bar-title">${titleCase(stageWord())} ${net.units}</span>${colourBar(300)}` + multiNote();
+      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}` + multiNote();
   }
 }
 
@@ -545,7 +627,8 @@ function seasonGhost() {
 
 // "No CB-net tows (standard sampling) in this season".
 function noTowText() {
-  return `No ${meta.nets[state.net].code}-net tows (${meta.samplings[state.sampling]} sampling) in this ${state.mode === "season" ? "season" : "month"}`;
+  const what = dataset === "ichthyo" || dataset === "volume" ? `${meta.nets[state.net].code}-net` : dataset === "krill" ? "krill" : "ZooScan";
+  return `No ${what} tows (${meta.samplings[state.sampling]} sampling) in this ${state.mode === "season" ? "season" : "month"}`;
 }
 
 // Stations [[lon, lat]] to mark "no tow": an open ring, dark on a white halo,
@@ -558,7 +641,7 @@ function setNoTow(stations) {
 }
 
 function renderLegend() {
-  $("legend-title").textContent = `${titleCase(stageWord())} ${meta.nets[state.net].units}`;
+  $("legend-title").textContent = valueTitle();
   $("legend-items").innerHTML = colourBar(280);
   setToggle("scale-toggle", state.scaleMode);
   const top = scaleBreaks[scaleBreaks.length - 1].toLocaleString();
@@ -645,7 +728,7 @@ function renderStationChart(st = state.station) {
   $("station-panel").hidden = false;
   document.querySelector(".map-area").classList.add("station-open");
   $("station-title").textContent =
-    `${stationName(st)} — ${speciesName(state.taxon)}, ${stageWord()} ${meta.nets[state.net].units}, ` +
+    `${stationName(st)} — ${speciesName(state.taxon)}, ${unitsLabel()}, ` +
     `${meta.nets[state.net].code} net, ${meta.samplings[state.sampling]} sampling (` +
     (state.mode === "month" ? `${series.length} survey months)`
       : `${state.season === "sequence" ? "all seasons" : SEASON_LABEL[state.season].toLowerCase()}, ${series.length} seasons)`);
@@ -841,9 +924,9 @@ function setupSpeciesSelect() {
   const option = (t) => `<option value="${t.id}">${label(t)} (${t.rows.toLocaleString()})</option>`;
   const featured = featuredFirst(taxa.filter((t) => t.featured !== undefined));
   const all = taxa.filter((t) => !t.group).sort((a, b) => label(a).localeCompare(label(b)));
-  $("species-select").innerHTML = `<optgroup label="Featured">${featured.map(option).join("")}</optgroup>` +
-    `<optgroup label="All taxa (A–Z)">${all.map(option).join("")}</optgroup>`;
-  $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
+  $("species-select").innerHTML = (featured.length ? `<optgroup label="Featured">${featured.map(option).join("")}</optgroup>` : "") +
+    (dataset === "ichthyo" ? `<optgroup label="All taxa (A–Z)">${all.map(option).join("")}</optgroup>`
+      : taxa.map(option).join(""));        // zooplankton: the dataset's own order
 }
 
 async function selectTaxon(t, resetNet, { keepInput = false } = {}) {
@@ -856,11 +939,14 @@ async function selectTaxon(t, resetNet, { keepInput = false } = {}) {
       const bongo = meta.nets.findIndex((n) => n.code === DEFAULT_NET);
       state.net = bongo >= 0 && t.netRows[bongo] > 0 ? bongo : t.topNet;
     }
-    if ((meta.stages[state.stage] === "egg" ? t.eggs : t.larvae) === 0) state.stage = t.eggs > 0 ? 0 : 1;
+    const rows = t.stageRows || [t.eggs, t.larvae];
+    if (!(rows[state.stage] > 0)) state.stage = dataset === "ichthyo" ? (t.eggs > 0 && !t.larvae ? 0 : 1) : Math.max(0, rows.findIndex((r) => r > 0));
   }
   if (!keepInput) $("species-input").value = speciesName(t);
   $("species-select").value = String(t.id);
-  $("species-detail").textContent = t.group
+  $("species-detail").textContent = dataset !== "ichthyo"
+    ? `${meta.title} · ${t.rows.toLocaleString()} station-month records`
+    : t.group
     ? `Group: the summed abundance of ${t.members} · ${t.larvae.toLocaleString()} larva records`
     : `${t.family ? `${t.family} · ` : ""}${t.larvae.toLocaleString()} larva and ${t.eggs.toLocaleString()} egg records`;
   $("stage-select").value = String(state.stage);
@@ -913,7 +999,20 @@ function setMode(mode) {
 // species controls stay for the hydrography's optional ichthyoplankton overlay.
 // choice: "ichthyo", "hydro" or "anomaly" (the hydrography view showing
 // departures from climatology).
-function setLayer(choice) {
+// The Dataset menu: in the hydrographic views it picks the overlay (any of the
+// four); in the Zooplankton view, one of the zooplankton datasets.
+async function chooseDataset(ds) {
+  if (state.layer === "hydro") { await switchDataset(ds); return; }
+  await setLayer(ds === "ichthyo" ? "ichthyo" : "zoo", ds);
+}
+
+async function setLayer(choice, zooDataset = lastZoo) {
+  // "zoo": the Zooplankton view, the ichthyoplankton view's machinery with a zooplankton dataset.
+  if (choice === "zoo" || (choice === "ichthyo" && dataset !== "ichthyo")) {
+    await switchDataset(choice === "zoo" ? zooDataset : "ichthyo");
+    if (state.layer !== "hydro") { updateLayerControls(); render(); return; }
+    choice = "ichthyo";
+  }
   const layer = choice === "ichthyo" ? "ichthyo" : "hydro";
   if (layer === state.layer) {
     if (layer === "hydro" && choice !== hView()) {
@@ -955,7 +1054,7 @@ function setLayer(choice) {
 
 function updateLayerControls() {
   const hydro = state.layer === "hydro";
-  setToggle("layer-toggle", !hydro ? "ichthyo" : hView());
+  setToggle("layer-toggle", !hydro ? (dataset === "ichthyo" ? "ichthyo" : "zoo") : hView());
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
@@ -968,6 +1067,10 @@ function updateLayerControls() {
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
+  // Ichthyoplankton and Zooplankton are separate views: the Dataset menu picks
+  // among the zooplankton datasets there, and (all four) the hydrography's overlay.
+  if (!hydro && dataset === "ichthyo") $("dataset-box").hidden = true;
+  $("dataset-select").querySelector('option[value="ichthyo"]').hidden = !hydro;
   renderHighCounts();   // the distribution panels stay open in both views
   document.querySelectorAll(".watermass-only").forEach((e) => { e.hidden = !(hydro && hView() === "watermass"); });
   if (!(hydro && hView() === "watermass")) $("ternary-panel").hidden = true;
@@ -979,6 +1082,8 @@ function updateLayerControls() {
     ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : hydro
     ? "Temperature, salinity, density, oxygen, nutrients and chlorophyll from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    : dataset !== "ichthyo"
+    ? `${meta.title}, CalCOFI cruises, ${meta.periods[0].year}–${meta.periods[meta.periods.length - 1].year}`
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
 }
 
@@ -1028,15 +1133,15 @@ function togglePlay() {
 function setupControls() {
   $("bathy-toggle").checked = bathyOn;
   $("bathy-toggle").addEventListener("change", (e) => { bathyOn = e.target.checked; setBathyVisible(); writeHash(); });
-  fillSelect($("stage-select"), meta.stages.map(titleCase), state.stage);
-  fillSelect($("sampling-select"), meta.samplings.map(titleCase), state.sampling);
-  fillSelect($("net-select"), meta.nets.map((n) => n.label), state.net);
+  fillDatasetControls();      // with the link's stage, sampling and net
 
   $("stage-select").addEventListener("change", (e) => { state.stage = Number(e.target.value); render(); });
   $("sampling-select").addEventListener("change", (e) => { state.sampling = Number(e.target.value); onFilterChange(); });
   $("net-select").addEventListener("change", (e) => { state.net = Number(e.target.value); onFilterChange(); });
   document.querySelectorAll("#view-toggle button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   document.querySelectorAll("#layer-toggle button").forEach((b) => b.addEventListener("click", () => setLayer(b.dataset.value)));
+  $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
+  $("dataset-select").addEventListener("change", (e) => chooseDataset(e.target.value));
   setupHydroControls();
   setupDownload();
   setupHighCounts();
@@ -1070,7 +1175,6 @@ function setupControls() {
     step(e.key === "ArrowLeft" ? -1 : 1);
   }, true);
   setupSpeciesPicker();
-  setupSpeciesSelect();
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -1614,7 +1718,8 @@ function sampleRow(i) {
 }
 
 // e.g. "per 10 m²" -> "count_per_10_m2" (no spaces in values either)
-const unitsColumn = () => `count_${meta.nets[state.net].units.replace("m²", "m2").replace("m³", "m3")}`.replace(/\s+/g, "_");
+const unitsColumn = () => (stageInfo() ? `${meta.stages[state.stage]}_${stageInfo().units}` : `count_${meta.nets[state.net].units}`)
+  .replace("m²", "m2").replace("m³", "m3").replace("m⁻²", "m-2").replace("µ", "u").replace(/[\s,]+/g, "_");
 
 async function runDownload() {
   const stations = dl.extent === "station"
@@ -1700,6 +1805,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
+  if (dataset !== "ichthyo") params.set("ds", dataset);
   // The view goes in the query string, not the fragment: LinkedIn (and other
   // link wrappers) drop a link's #fragment, but keep its ?query.
   history.replaceState(null, "", `${location.pathname}?${params}`);
@@ -2018,9 +2124,9 @@ function createMap() {
 
 async function init() {
   $("status").textContent = "Loading…";
-  [meta, occ, taxa] = await Promise.all([getJSON("meta.json"), getJSON("occupations.json"), getJSON("taxa.json"), loadHydroMeta()]);
+  const ds = new URLSearchParams(viewString()).get("ds");
+  await Promise.all([loadDataset(DATASETS[ds] && ds !== "ichthyo" ? ds : "ichthyo"), loadHydroMeta()]);
   $("data-generated").textContent = `Data built ${meta.generated}.`;
-  indexOccupations();
   const fromHash = readHash();
   setupControls();
   setMode(state.mode);
@@ -2028,7 +2134,7 @@ async function init() {
   $("season-select").value = state.season;
   await createMap();
 
-  const start = fromHash.taxon || taxa.find((t) => t.scientific === "Engraulis mordax") || taxa[0];
+  const start = fromHash.taxon || defaultTaxon();
   if (!fromHash.taxon) {
     // Open on the default net's most recent survey.
     const bongo = meta.nets.findIndex((n) => n.code === DEFAULT_NET);

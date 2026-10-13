@@ -77,6 +77,9 @@ DERIVED_CAST_VARIABLES = {
     "nitricline_depth": {"label": "Nitricline depth", "units": "m", "column": "nitz", "decimals": 1},
     "chl_max_depth": {"label": "Chlorophyll-maximum depth", "units": "m", "column": "chlz", "decimals": 1, "sources": ["ctd"]},
     "mld": {"label": "Mixed layer depth", "units": "m", "column": "mld", "decimals": 1, "sources": ["ctd"]},
+    # CalCOFI's chlorophyll a integrated over 0-200 m: log10 mg m-2, as chlorophyll (see VARIABLES)
+    "chl_integrated": {"label": "Integrated chlorophyll a, 0–200 m", "units": "mg m⁻²", "column": "chli", "decimals": 3,
+                       "sources": ["ctd"], "log": True},
     # CalCOFI's 0/500 dbar dynamic height (Water masses view, "Circulation")
     "dyn_height": {"label": "Dynamic height, 0/500 dbar", "units": "dyn m", "column": "dh", "decimals": 3, "group": "dynamic"},
 }
@@ -167,6 +170,9 @@ def build_source(key, path, label, out_dir, src_dir):
 
     # one value per cast: station x survey month means
     casts["period"] = casts.date.str[:7]
+    for v, spec in DERIVED_CAST_VARIABLES.items():
+        if spec.get("log") and v in casts:
+            casts[v] = np.log10(casts[v].clip(lower=CHL_FLOOR))
     present = [v for v in DERIVED_CAST_VARIABLES if v in casts]
     cm = (casts.groupby(["period", "site_key"]).agg(**{v: (v, "mean") for v in present}, n=("cast", "nunique"))
                .reset_index().sort_values(["period", "site_key"]))
@@ -236,7 +242,8 @@ def main():
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived",
                    **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": v.get("group", "derived"), "perCast": True,
-                   **({"sources": v["sources"]} if "sources" in v else {})} for k, v in DERIVED_CAST_VARIABLES.items()},
+                   **({"sources": v["sources"]} if "sources" in v else {}), **({"log": True} if v.get("log") else {})}
+               for k, v in DERIVED_CAST_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "isopycnal",
                    "style": v["style"], "sources": ["ctd"]} for k, v in ISOPYCNAL_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "fraction", "maxDepth": 400}

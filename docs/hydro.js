@@ -62,10 +62,14 @@ const HYDRO_STYLES = {
     stops: ["#c9d4bf", "#aec7aa", "#91ba98", "#71ae8b", "#4ea183", "#29937f", "#13837b", "#137275", "#19616c", "#1c5062", "#1c4058", "#192f4d", "#151d44"],
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
-  // Chlorophyll a: as the Fishing Maps chlorophyll map, the SST rainbow, here on
-  // a log scale (the values are log10 ug/L; see logLevels / fmtLog).
-  chlorophyll: {
-    stops: ["#0030f5", "#1769ad", "#39886d", "#47a325", "#82b513", "#bcc31c", "#f1ca24", "#f9b020", "#f68e19", "#f16715", "#f55945", "#ff749d", "#fd92fa"],
+  // Chlorophyll a: cmocean algae (user, 2026-10-14), on a log scale (the values
+  // are log10 ug/L; see logLevels / fmtLog).
+  chl_integrated: {   // as chlorophyll: cmocean algae, log scale
+    stops: ["#b1dea5", "#99cf8c", "#7ec175", "#61b361", "#3da654", "#189750", "#07864d", "#0e7548", "#156540", "#195437", "#1a442c", "#173420", "#122414"],
+    smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
+  },
+  chlorophyll: {   // cmocean algae, 0.12-1 (its near-white end trimmed so white contours read)
+    stops: ["#b1dea5", "#99cf8c", "#7ec175", "#61b361", "#3da654", "#189750", "#07864d", "#0e7548", "#156540", "#195437", "#1a442c", "#173420", "#122414"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
   },
   // Derived variables. Depths run light (shallow) to dark (deep); the mixed
@@ -126,7 +130,8 @@ const ANOMALY_STYLES = {
   salinity: ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"],
   sigma_theta: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
   oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
-  // Chlorophyll: a log ratio to normal; below normal brown, above green.
+  // Chlorophyll (and integrated chlorophyll): a log ratio to normal; below normal brown, above green.
+  chl_integrated: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   chlorophyll: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   nitrate: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
   silicate: ["#5f185a", "#921f63", "#bf365b", "#e05e53", "#f18f63", "#f6c9a0", "#f3f1ec", "#c9d4bf", "#91ba98", "#4ea183", "#13837b", "#19616c", "#151d44"],
@@ -521,7 +526,7 @@ function fieldAt(f, lon, lat) {
 // values (0.1, 0.2, 0.5, 1 ...), or for anomalies (log ratios to normal) at
 // ratios (/2, /1.5, x1, x1.5, x2 ...), each covering [lo, hi]; the step is
 // the smallest gap (used only for rounding).
-const LOG_VALUES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100].map(Math.log10);
+const LOG_VALUES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].map(Math.log10);
 const LOG_RATIOS = [1.5, 2, 3, 5, 10, 20, 50, 100].map(Math.log10);
 const isLog = () => Boolean(hVar()?.log);
 function logLevels(lo, hi, anomaly) {
@@ -961,6 +966,10 @@ const signedTick = (v) => {
   return hstate.anomaly ? (v > 0 ? `+${t}` : t.replace("-", "−")) : t;
 };
 
+// The overlay's stage and net (fish: "larvae · CB net"), or stage/measurement and units (zooplankton).
+const overlayWhat = () => (dataset === "ichthyo" ? `${stageWord()} · ${meta.nets[state.net].code} net`
+  : dataset === "volume" ? `${stageInfo().units} · ${meta.nets[state.net].code} net` : valueTitle());
+
 function hydroWhat() {
   return `${hSrc().label} · ${hLabel()}${hDepthText(" at ")}`;
 }
@@ -972,7 +981,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
       ? `${hVar().label} comes from CTD casts only: choose the CTD source.`
       : `No ${hSourceWord()} data for ${lowerFirst(hTitle())} in this ${state.mode === "season" ? "season" : "month"}.`;
     const fish = showFish && fishPeriods.length
-      ? `<span class="bar-title">${speciesHTML(state.taxon)}, ${stageWord()} · ${meta.nets[state.net].code} net</span>${colourBar(300)}${multiNote()}`
+      ? `<span class="bar-title">${speciesHTML(state.taxon)}, ${overlayWhat()}</span>${colourBar(300)}${multiNote()}`
       : "";
     $("map-label").innerHTML = `<span class="when">${when || hydroWhat()}</span>${none}${fish}`;
     return;
@@ -984,7 +993,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
   if (showFish) {
     const t = state.taxon;
     const name = speciesHTML(t);
-    fish = `<span class="bar-title">${name}, ${stageWord()} · ${meta.nets[state.net].code} net</span>${colourBar(300)}` +
+    fish = `<span class="bar-title">${name}, ${overlayWhat()}</span>${colourBar(300)}` +
       (fishPeriods.length ? multiNote() : `<span class="map-note">${noTowText()}: the casts are shown as open circles.</span>`);
   }
   $("map-label").innerHTML = `<span class="when">${when}</span>${hydroWhat()}<br>Cruise${cruises.length > 1 ? "s" : ""} ${cruiseText}` +
