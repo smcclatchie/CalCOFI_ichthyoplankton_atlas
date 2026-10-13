@@ -143,6 +143,15 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   padding: 14px 20px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15); text-align: center; pointer-events: none; }
 .map-message[hidden] { display: none; }
+/* First-visit note on the landing view (setupWelcome). */
+.welcome { position: absolute; z-index: 6; top: 50%; left: 50%; transform: translate(-50%, -55%); width: min(520px, calc(100% - 32px));
+  padding: 18px 22px 16px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22); font-size: 14px; line-height: 1.5; color: var(--text-secondary); }
+.welcome[hidden] { display: none; }
+.welcome h2 { margin: 0 0 8px; font-size: 18px; color: var(--text-primary); }
+.welcome p { margin: 0 0 8px; }
+.welcome ul { margin: 0 0 12px; padding-left: 18px; }
+.welcome button { display: block; margin-left: auto; }
 .map-message strong { display: block; font-size: 17px; color: var(--text-primary); }
 .map-message span { display: block; margin-top: 4px; font-size: 13px; color: var(--text-secondary); }
 /* CalCOFI logo: a brand label kept on land (see placeLogo in atlas.js). */

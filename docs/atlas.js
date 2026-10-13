@@ -10,6 +10,7 @@
 
 const DATA = "data/";
 const INITIAL_BOUNDS = [[-135, 19], [-108, 43]];
+const LANDING_BOUNDS = [[-125.2, 29.6], [-116.6, 36.4]];   // the core CalCOFI pattern (lines 76.7-93.3), Southern California
 const PLAY_INTERVAL_MS = 2000;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
   "August", "September", "October", "November", "December"];
@@ -1343,6 +1344,7 @@ function renderHighCounts() {
   $("left-panels").hidden = !highOpen;
   $("high-toggle").setAttribute("aria-pressed", String(highOpen));
   if (!highOpen) return;
+  if (!state.taxon || !taxonCache.has(state.taxon.id)) return;     // not loaded yet (a link opening with the panel)
   const { counts, samples } = highCountData();
   const net = meta.nets[state.net];
   $("high-title").textContent =
@@ -1864,6 +1866,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
+  if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
   // The view goes in the query string, not the fragment: LinkedIn (and other
   // link wrappers) drop a link's #fragment, but keep its ?query.
@@ -1875,7 +1878,7 @@ function writeHash() {
 // landing view (a trial one, 2026-10-13: spring 2016 PEW anomaly at 50 m,
 // warm-water larvae overlaid, the line 90 section; to be redesigned).
 const LANDING_VIEW = "taxon=group%3Awarm-water&stage=larva&sampling=standard&net=CB&view=season&layer=anomaly&src=ctd" +
-  "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016";
+  "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016&dist=1";
 const linkView = () => (location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
 const viewString = () => linkView() || LANDING_VIEW;
 
@@ -1889,6 +1892,7 @@ function readHash() {
   if (params.get("view") === "season") state.mode = "season";
   if (params.get("scale") === "fixed") state.scaleMode = "fixed";
   if (params.get("bathy") === "0") bathyOn = false;
+  if (params.get("dist") === "1") highOpen = true;
   if (SEASON_LABEL[params.get("season")] || params.get("season") === "sequence") state.season = params.get("season");
   const year = Number(params.get("year"));
   if (params.has("year") && Number.isFinite(year)) {
@@ -2082,7 +2086,7 @@ function createMap() {
   const empty = { type: "FeatureCollection", features: [] };
   map = new maplibregl.Map({
     container: "map",
-    bounds: INITIAL_BOUNDS,
+    bounds: linkView() ? INITIAL_BOUNDS : LANDING_BOUNDS,
     fitBoundsOptions: { padding: 20 },
     attributionControl: { compact: true, customAttribution: "Coastline: Natural Earth · Depth contours: GMT Earth relief" },
     style: {
@@ -2181,6 +2185,20 @@ function createMap() {
   return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; loadBathymetry(); resolve(); }));
 }
 
+// --------------------------------------------------------------- welcome --
+// A short note for a first visit to the plain address (the landing view); once
+// closed it stays closed in this browser.
+function setupWelcome() {
+  let seen = false;
+  try { seen = localStorage.getItem("atlas-welcome-closed") === "1"; } catch (e) { /* storage blocked */ }
+  if (linkView() || seen) return;
+  $("welcome").hidden = false;
+  $("welcome-close").addEventListener("click", () => {
+    $("welcome").hidden = true;
+    try { localStorage.setItem("atlas-welcome-closed", "1"); } catch (e) { /* storage blocked */ }
+  });
+}
+
 // ---------------------------------------------------------------- init --
 
 async function init() {
@@ -2212,6 +2230,7 @@ async function init() {
     if (station >= 0) state.station = station;
   }
   await selectTaxon(start, !fromHash.taxon);
+  setupWelcome();
 }
 
 init().catch((err) => {
