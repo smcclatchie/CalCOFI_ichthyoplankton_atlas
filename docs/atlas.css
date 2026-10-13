@@ -339,6 +339,8 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .compare[hidden] { display: none; }
 .compare-q { display: block; margin-bottom: 4px; font-weight: 600; font-size: 13px; }
 .contour-label { font: 600 10px/1 var(--font); white-space: nowrap; pointer-events: none; }
+.bathy-label { font: 500 9.5px/1 var(--font); color: #4d5862; white-space: nowrap; pointer-events: none;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff; }
 /* Four Map buttons in a 2 x 2 grid. */
 .segmented.grid2 { display: grid; grid-template-columns: 1fr 1fr; }
 .segmented.grid2 button:nth-child(odd) { border-left: 0; }

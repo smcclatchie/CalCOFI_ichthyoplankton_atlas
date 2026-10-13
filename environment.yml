@@ -8,3 +8,7 @@ dependencies:
   - pandas
   - python-duckdb
   - cartopy
+  - xarray       # build_bathymetry.py reads the NetCDF bathymetry grid
+  - netcdf4
+  - matplotlib
+  - shapely

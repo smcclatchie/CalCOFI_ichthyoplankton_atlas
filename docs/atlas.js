@@ -1026,6 +1026,8 @@ function togglePlay() {
 }
 
 function setupControls() {
+  $("bathy-toggle").checked = bathyOn;
+  $("bathy-toggle").addEventListener("change", (e) => { bathyOn = e.target.checked; setBathyVisible(); writeHash(); });
   fillSelect($("stage-select"), meta.stages.map(titleCase), state.stage);
   fillSelect($("sampling-select"), meta.samplings.map(titleCase), state.sampling);
   fillSelect($("net-select"), meta.nets.map((n) => n.label), state.net);
@@ -1697,6 +1699,7 @@ function writeHash() {
   }
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
+  if (!bathyOn) params.set("bathy", "0");
   // The view goes in the query string, not the fragment: LinkedIn (and other
   // link wrappers) drop a link's #fragment, but keep its ?query.
   history.replaceState(null, "", `${location.pathname}?${params}`);
@@ -1715,6 +1718,7 @@ function readHash() {
   if (params.has("net")) state.net = idx(meta.nets.map((n) => n.code), params.get("net"));
   if (params.get("view") === "season") state.mode = "season";
   if (params.get("scale") === "fixed") state.scaleMode = "fixed";
+  if (params.get("bathy") === "0") bathyOn = false;
   if (SEASON_LABEL[params.get("season")] || params.get("season") === "sequence") state.season = params.get("season");
   const year = Number(params.get("year"));
   if (params.has("year") && Number.isFinite(year)) {
@@ -1837,6 +1841,59 @@ function placeLogo() {
   });
 }
 
+// ------------------------------------------------------ depth contours --
+//
+// Depth contours (docs/data/bathymetry.geojson, build_bathymetry.py), the same
+// under every survey, with depth labels along the longer lines: HTML markers,
+// like the hydrography's contour labels (the map has no font files), relaid
+// after every move. The "Depth contours" checkbox shows or hides both.
+let bathyFC = null, bathyMarkers = [], bathyOn = true;
+const BATHY_LABEL_SPACING_PX = 520, BATHY_LABEL_MIN_LINE_PX = 180, BATHY_LABEL_SEPARATION_PX = 80, BATHY_LABEL_EDGE_PX = 30;
+
+async function loadBathymetry() {
+  bathyFC = await getJSON("bathymetry.geojson");
+  map.getSource("bathymetry").setData(bathyFC);
+  map.on("moveend", layoutBathyLabels);
+  setBathyVisible();
+}
+
+function setBathyVisible() {
+  for (const id of ["bathy-halo", "bathy"]) map.setLayoutProperty(id, "visibility", bathyOn ? "visible" : "none");
+  layoutBathyLabels();
+}
+
+function layoutBathyLabels() {
+  for (const m of bathyMarkers) m.remove();
+  bathyMarkers = [];
+  if (!bathyOn || !bathyFC) return;
+  const canvas = map.getCanvas(), W = canvas.clientWidth, H = canvas.clientHeight, e = BATHY_LABEL_EDGE_PX;
+  const placed = [];
+  for (const f of bathyFC.features) {
+    const pts = f.geometry.coordinates.map((c) => map.project(c));
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    const total = cum[cum.length - 1];
+    if (total < BATHY_LABEL_MIN_LINE_PX) continue;
+    const at = (d) => { let k = 1; while (k < cum.length - 1 && cum[k] < d) k++; return k; };
+    for (let pos = Math.min(BATHY_LABEL_SPACING_PX, total) / 2; pos < total; pos += BATHY_LABEL_SPACING_PX) {
+      const i = at(pos), t = (pos - cum[i - 1]) / Math.max(1e-9, cum[i] - cum[i - 1]);
+      const x = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t, y = pts[i - 1].y + (pts[i].y - pts[i - 1].y) * t;
+      if (x < e || y < e || x > W - e || y > H - e) continue;
+      if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < BATHY_LABEL_SEPARATION_PX)) continue;
+      const pa = pts[at(Math.max(0, pos - 12)) - 1], pb = pts[at(Math.min(total, pos + 12))];
+      let angle = (Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180) / Math.PI;
+      if (angle > 90) angle -= 180;
+      if (angle < -90) angle += 180;
+      const el = document.createElement("div");
+      el.className = "bathy-label";
+      el.textContent = `${f.properties.depth} m`;
+      bathyMarkers.push(new maplibregl.Marker({ element: el, anchor: "center", rotation: angle, rotationAlignment: "viewport" })
+        .setLngLat(map.unproject([x, y])).addTo(map));
+      placed.push({ x, y });
+    }
+  }
+}
+
 // ----------------------------------------------------------------- map --
 
 function graticule() {
@@ -1856,11 +1913,12 @@ function createMap() {
     container: "map",
     bounds: INITIAL_BOUNDS,
     fitBoundsOptions: { padding: 20 },
-    attributionControl: { compact: true, customAttribution: "Coastline: Natural Earth" },
+    attributionControl: { compact: true, customAttribution: "Coastline: Natural Earth · Depth contours: GMT Earth relief" },
     style: {
       version: 8,
       sources: {
         land: { type: "geojson", data: `${DATA}land.geojson` },
+        bathymetry: { type: "geojson", data: empty },          // loadBathymetry()
         graticule: { type: "geojson", data: graticule() },
         stations: { type: "geojson", data: empty },
         notow: { type: "geojson", data: empty },
@@ -1871,6 +1929,13 @@ function createMap() {
         { id: "graticule", type: "line", source: "graticule", paint: { "line-color": "#dfe5ea", "line-width": 0.6 } },
         { id: "land", type: "fill", source: "land", paint: { "fill-color": "#e8e6df" } },
         { id: "coast", type: "line", source: "land", paint: { "line-color": "#9a9890", "line-width": 0.6 } },
+        // Depth contours (200-4000 m), the same for every survey (build_bathymetry.py): grey on a
+        // faint white edge, so they show on dark palettes too; over the hydrography's field in its
+        // views (hydro.js moves them), under the stations in all.
+        { id: "bathy-halo", type: "line", source: "bathymetry",
+          paint: { "line-color": "#ffffff", "line-opacity": 0.4, "line-width": ["match", ["get", "depth"], [200, 1000], 2.6, 2.2] } },
+        { id: "bathy", type: "line", source: "bathymetry",
+          paint: { "line-color": "#56616b", "line-opacity": 0.6, "line-width": ["match", ["get", "depth"], [200, 1000], 0.9, 0.6] } },
         {
           id: "zero", type: "circle", source: "stations", filter: ["==", ["get", "cls"], -1],
           paint: { "circle-color": ZERO.color, "circle-radius": ZERO.radius, "circle-stroke-color": DISC, "circle-stroke-width": 0.6 },
@@ -1941,7 +2006,7 @@ function createMap() {
   map.on("zoomend", () => { if (lastLabelled) placeLineLabels(...lastLabelled); });
   map.on("resize", placeLogo);
   map.on("idle", placeLogo);
-  return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; resolve(); }));
+  return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; loadBathymetry(); resolve(); }));
 }
 
 // ---------------------------------------------------------------- init --

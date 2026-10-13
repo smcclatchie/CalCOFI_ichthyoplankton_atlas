@@ -792,6 +792,8 @@ function addHydroLayers() {
   });
   map.on("mouseout", () => popup.remove());
   map.on("moveend", () => { if (state.layer === "hydro") layoutContourLabels(); });
+  // Depth contours over the field and its mask, under the stations.
+  for (const id of ["bathy-halo", "bathy"]) if (map.getLayer(id)) map.moveLayer(id, "hydro-stations");
   addSectionLayers();
 }
 
