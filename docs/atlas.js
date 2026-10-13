@@ -65,6 +65,10 @@ const DATASETS = { ichthyo: "Ichthyoplankton", krill: "Krill", zooscan: "ZooScan
 const isTrack = () => Boolean(meta.track);
 let dataset = "ichthyo";
 let lastZoo = "krill";                     // the Zooplankton button opens the last one used
+let lastFish = "ichthyo";                  // and the Ichthyoplankton button (net tows or CUFES)
+// Each view's datasets: fish eggs and larvae (net tows, CUFES underway eggs), zooplankton.
+const FISH_SETS = ["ichthyo", "cufes"], ZOO_SETS = ["krill", "zooscan", "volume"];
+const isFish = (ds = dataset) => FISH_SETS.includes(ds);
 const datasetCache = new Map();            // key -> {meta, occ, taxa, cache}
 const datasetChoice = new Map();           // key -> {taxon, net, stage, sampling} chosen there, restored on return
 const dataDir = (ds = dataset) => (ds === "ichthyo" ? "" : `zoo/${ds}/`);
@@ -111,7 +115,7 @@ async function loadDataset(ds) {
   }
   ({ meta, occ, taxa, cache: taxonCache } = datasetCache.get(ds));
   dataset = ds;
-  if (ds !== "ichthyo") lastZoo = ds;
+  if (isFish(ds)) lastFish = ds; else lastZoo = ds;
   if (hstate.overlay) $("hydro-overlay").value = ds;
   indexOccupations();
   lineAxes = null;
@@ -1037,20 +1041,22 @@ function setMode(mode) {
 // species controls stay for the hydrography's optional ichthyoplankton overlay.
 // choice: "ichthyo", "hydro" or "anomaly" (the hydrography view showing
 // departures from climatology).
-// The Dataset menu (Zooplankton view): one of the zooplankton datasets. The
-// hydrographic views pick their overlay with their own Overlay menu.
+// The Dataset menu: the view's own datasets (Ichthyoplankton: net tows or
+// CUFES; Zooplankton: krill, ZooScan, plankton volume). The hydrographic views
+// pick their overlay with their own Overlay menu.
 async function chooseDataset(ds) {
   if (state.layer === "hydro") { await switchDataset(ds); return; }
-  await setLayer(ds === "ichthyo" ? "ichthyo" : "zoo", ds);
+  await setLayer(isFish(ds) ? "ichthyo" : "zoo", ds);
 }
 
-async function setLayer(choice, zooDataset = lastZoo) {
-  // "zoo": the Zooplankton view, the ichthyoplankton view's machinery with a zooplankton dataset.
-  if (choice === "zoo" || (choice === "ichthyo" && dataset !== "ichthyo")) {
-    await switchDataset(choice === "zoo" ? zooDataset : "ichthyo");
+async function setLayer(choice, viewDataset) {
+  // "ichthyo" / "zoo": the same machinery, each with its own datasets.
+  const want = choice === "zoo" ? (viewDataset || lastZoo) : choice === "ichthyo" ? (viewDataset || lastFish) : null;
+  if (want && want !== dataset) {
+    await switchDataset(want);
     if (state.layer !== "hydro") { updateLayerControls(); render(); return; }
-    choice = "ichthyo";
   }
+  if (choice === "zoo") choice = "ichthyo";        // the map layer is the same
   const layer = choice === "ichthyo" ? "ichthyo" : "hydro";
   if (layer === state.layer) {
     if (layer === "hydro" && choice !== hView()) {
@@ -1092,7 +1098,7 @@ async function setLayer(choice, zooDataset = lastZoo) {
 
 function updateLayerControls() {
   const hydro = state.layer === "hydro";
-  setToggle("layer-toggle", !hydro ? (dataset === "ichthyo" ? "ichthyo" : "zoo") : hView());
+  setToggle("layer-toggle", !hydro ? (isFish() ? "ichthyo" : "zoo") : hView());
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
@@ -1105,10 +1111,10 @@ function updateLayerControls() {
   document.querySelectorAll(".ichthyo-only").forEach((e) => { e.hidden = hydro; });
   // Species, stage, net and the abundance legend: the ichthyoplankton view, or the overlay.
   document.querySelectorAll(".fish-controls").forEach((e) => { e.hidden = hydro && !hstate.overlay; });
-  // Ichthyoplankton and Zooplankton are separate views: the Dataset menu picks
-  // among the zooplankton datasets there, and (all four) the hydrography's overlay.
-  $("dataset-box").hidden = hydro || dataset === "ichthyo";
-  $("dataset-select").querySelector('option[value="ichthyo"]').hidden = true;
+  // Ichthyoplankton and Zooplankton are separate views, each with its own datasets
+  // in the Dataset menu; the hydrography's overlay has its own menu.
+  $("dataset-box").hidden = hydro;
+  for (const o of $("dataset-select").options) o.hidden = isFish() !== isFish(o.value);
   renderHighCounts();   // the distribution panels stay open in both views
   document.querySelectorAll(".watermass-only").forEach((e) => { e.hidden = !(hydro && hView() === "watermass"); });
   if (!(hydro && hView() === "watermass")) $("ternary-panel").hidden = true;
