@@ -3,3 +3,6 @@ __pycache__/
 .ipynb_checkpoints/
 .vscode/*(conflicted)*
 # docs/data IS committed: GitHub Pages serves it with the site.
+
+# Node packages for tools/ (Playwright)
+node_modules/
