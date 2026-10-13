@@ -208,7 +208,15 @@ function classOf(a) {
   return i;
 }
 
-const templateFor = (max) => SCALE_TEMPLATES.find((t) => max <= t[t.length - 1]) || SCALE_TEMPLATES[SCALE_TEMPLATES.length - 1];
+// Beyond the largest template (ZooScan abundances reach millions per m²), the
+// 1-2-5 template (0, 1, 2, 5 ... 1000) is scaled up by a power of 10, so the
+// classes keep 1-2-5 steps over the top three decades, where such values lie.
+function templateFor(max) {
+  const t = SCALE_TEMPLATES.find((x) => max <= x[x.length - 1]);
+  if (t) return t;
+  const k = Math.ceil(Math.log10(max / 1000) - 1e-9);
+  return SCALE_TEMPLATES[4].map((v) => v * 10 ** k);
+}
 
 function recordValues() {
   // Every non-zero value in the record for the current species/net/stage/sampling.
@@ -675,7 +683,7 @@ function colourBar(width, noTow = noTowShown > 0) {
   const rMax = CLASSES[CLASSES.length - 1].radius + 1.3, top = 2, bh = 2 * rMax + 2, H = top + bh + 16;
   const bw = (width - x0 - 18) / CLASSES.length;   // right margin fits "300+"
   const cy = top + bh / 2;
-  const label = (v) => (v >= 1000 ? `${v / 1000}k` : String(v));
+  const label = (v) => (v >= 1e6 ? `${v / 1e6}M` : v >= 1000 ? `${v / 1000}k` : String(v));
   const last = b.length - 1;
   const parts = [
     `<circle cx="12" cy="${cy}" r="${ZERO.radius}" fill="${ZERO.color}" stroke="${DISC}" stroke-width="0.6"/>`,
