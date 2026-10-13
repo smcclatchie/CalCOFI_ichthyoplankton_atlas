@@ -1272,8 +1272,10 @@ function setupHydroControls() {
     renderHydroChart();
     writeHash();
   }));
+  // The overlay menu: none, or a biological dataset (the fish or a zooplankton one).
   $("hydro-overlay").addEventListener("change", async (e) => {
-    hstate.overlay = e.target.checked;
+    hstate.overlay = e.target.value !== "none";
+    if (hstate.overlay) await switchDataset(e.target.value);
     updateLayerControls();
     render();
   });
@@ -1290,7 +1292,7 @@ function setupHydroControls() {
   $("hydro-compare-to").addEventListener("change", compare);
   fillHydroVariables();
   setupSectionControls();
-  $("hydro-overlay").checked = hstate.overlay;
+  $("hydro-overlay").value = hstate.overlay ? dataset : "none";
   setToggle("hydro-source", hstate.source);
   fillHydroDepths();
 }

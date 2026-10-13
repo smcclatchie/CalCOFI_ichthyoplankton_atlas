@@ -95,8 +95,15 @@
 
       <section class="control hydro-only" hidden>
         <p class="hint">Station values are mapped as a Gaussian-weighted mean over 75 km (e-folding scale), so contours carry no detail finer than the stations support. The field is shown only within the sampled area.</p>
-        <label class="checkbox"><input type="checkbox" id="hydro-overlay"> <span id="overlay-label">Overlay ichthyoplankton</span></label>
-        <p class="hint">The overlay shows the dataset chosen below: fish eggs and larvae or a zooplankton dataset.</p>
+        <label for="hydro-overlay">Overlay</label>
+        <select id="hydro-overlay">
+          <option value="none">None</option>
+          <option value="ichthyo">Ichthyoplankton (fish eggs and larvae)</option>
+          <option value="krill">Krill (euphausiids)</option>
+          <option value="zooscan">ZooScan zooplankton</option>
+          <option value="volume">Plankton volume</option>
+        </select>
+        <p class="hint">Biological samples over the hydrography, matching its month or season; choose the species, stage and net below.</p>
       </section>
 
       <section class="control fish-controls" id="dataset-box">
