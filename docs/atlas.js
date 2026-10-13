@@ -1878,9 +1878,12 @@ function writeHash() {
 // landing view (a trial one, 2026-10-13: spring 2016 PEW anomaly at 50 m,
 // warm-water larvae overlaid, the line 90 section; to be redesigned).
 const LANDING_VIEW = "taxon=group%3Awarm-water&stage=larva&sampling=standard&net=CB&view=season&layer=anomaly&src=ctd" +
-  "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016&dist=1";
+  "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016&bathy=0";
 const linkView = () => (location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
 const viewString = () => linkView() || LANDING_VIEW;
+// Whether the visitor arrived on the plain address (the landing view), fixed at
+// load: the address takes the view as soon as the atlas starts.
+const ARRIVED_PLAIN = !linkView();
 
 function readHash() {
   const params = new URLSearchParams(viewString());
@@ -2086,7 +2089,7 @@ function createMap() {
   const empty = { type: "FeatureCollection", features: [] };
   map = new maplibregl.Map({
     container: "map",
-    bounds: linkView() ? INITIAL_BOUNDS : LANDING_BOUNDS,
+    bounds: ARRIVED_PLAIN ? LANDING_BOUNDS : INITIAL_BOUNDS,
     fitBoundsOptions: { padding: 20 },
     attributionControl: { compact: true, customAttribution: "Coastline: Natural Earth · Depth contours: GMT Earth relief" },
     style: {
@@ -2191,7 +2194,7 @@ function createMap() {
 function setupWelcome() {
   let seen = false;
   try { seen = localStorage.getItem("atlas-welcome-closed") === "1"; } catch (e) { /* storage blocked */ }
-  if (linkView() || seen) return;
+  if (!ARRIVED_PLAIN || seen) return;
   $("welcome").hidden = false;
   $("welcome-close").addEventListener("click", () => {
     $("welcome").hidden = true;
