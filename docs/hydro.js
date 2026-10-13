@@ -72,6 +72,30 @@ const HYDRO_STYLES = {
     stops: ["#000c7d", "#0019a1", "#002cba", "#0046b8", "#005fa4", "#007789", "#1c8f62", "#30a52f", "#33bb1a", "#36d219", "#73e31b", "#c3ed1e", "#fff123"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
   },
+  nitrite: {       // cmocean solar
+    stops: ["#521e22", "#6a2425", "#822d22", "#953a1d", "#a54a17", "#b25d14", "#bd7113", "#c78716", "#cf9c1d", "#d6b327", "#dbcb32", "#dfe33e", "#e1fd4b"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  ammonium: {      // cmocean rain
+    stops: ["#dbcdbf", "#cdbc9b", "#aeb187", "#8ea67c", "#6d9c73", "#46916e", "#1c836e", "#05736e", "#09626b", "#1a5063", "#243e55", "#252c45", "#221b38"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  oxygen_saturation: { // as oxygen (cmocean deep, reversed): low saturation dark
+    stops: ["#281a2c", "#342846", "#3d3564", "#414583", "#3e5992", "#3f6c96", "#437f9a", "#49929f", "#51a5a2", "#5bb8a4", "#71caa3", "#96daa4", "#bfe7ae"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  dic: {           // cmocean thermal
+    stops: ["#042333", "#0c3060", "#2c3395", "#563b9c", "#744992", "#90558b", "#b15f82", "#d06970", "#eb7958", "#f99341", "#fbb43d", "#f5d748", "#e8fa5b"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  alkalinity: {    // cmocean haline
+    stops: ["#2a186c", "#2d219d", "#14439c", "#0f5b90", "#206e8b", "#2f8089", "#3c9387", "#48a682", "#5ab978", "#7acb67", "#aad85c", "#d8e273", "#fdef9a"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
+  ph: {            // cmocean ice: lower pH (more acidic) darker
+    stops: ["#0f1024", "#212041", "#302f5f", "#3b3e7f", "#3f509b", "#3e65ad", "#427ab7", "#4e8fbf", "#5ea3c6", "#72b8ce", "#8ccbd6", "#b1dee2", "#d5f0f2"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
   phaeopigment: {  // cmocean turbid, 0.12-1 (degraded pigment: tan to dark brown), log scale
     stops: ["#d9d380", "#d0be68", "#c8a954", "#be9546", "#b3843f", "#a4733b", "#94653a", "#815839", "#6f4c36", "#5b4132", "#47362b", "#342a24", "#221f1b"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
@@ -137,12 +161,21 @@ const HYDRO_STYLES = {
 // density from cmocean dense's purple end against a teal, oxygen from deep,
 // nitrate matter against tempo, silicate the reverse. Black contours, the zero
 // contour drawn heavier; land as the variable's own map.
+const ANOM_NUTRIENT = ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"];
+const ANOM_OXYGEN = ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"];
+const ANOM_BALANCE = ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"];
 const ANOMALY_STYLES = {
   temperature: ["#0030f5", "#1250d0", "#1769ad", "#4a86bf", "#86acd3", "#c2d3e6", "#f2f0ec", "#f6cfb0", "#f4a874", "#f16715", "#f55945", "#f2668f", "#fd92fa"],
   salinity: ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"],
   sigma_theta: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
   oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
   // Chlorophyll (and integrated chlorophyll): a log ratio to normal; below normal brown, above green.
+  nitrite: ANOM_NUTRIENT,
+  ammonium: ANOM_NUTRIENT,
+  oxygen_saturation: ANOM_OXYGEN,
+  dic: ANOM_BALANCE,
+  alkalinity: ANOM_BALANCE,
+  ph: ANOM_BALANCE,
   phaeopigment: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   pp_integrated: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   chl_integrated: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
@@ -244,7 +277,7 @@ const hData = () => hcache.get(hKey());
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
 const hSourceWord = () => (hSrcKey() === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units && !(hVar().log && hstate.anomaly) ? ` ${hVar().units}` : "");   // a ratio has none
-const hFmt = (v) => (hVar().log ? fmtLog(v) : v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
+const hFmt = (v) => (hVar().log ? fmtLog(v) : v.toFixed({ nitrite: 2, ammonium: 2, oxygen_saturation: 1, dic: 1, alkalinity: 1, ph: 3, temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
   z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3));
 
 async function loadHydroMeta() {

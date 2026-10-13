@@ -62,6 +62,13 @@ VARIABLES = {
     # 0-200 m: bottle chlorophyll stops at 200 m, the CTD fluorometer reads ~0 below.
     "chlorophyll": {"label": "Chlorophyll a", "units": "µg L⁻¹", "column": "chl", "decimals": 3, "log": True, "maxDepth": 200},
     "phaeopigment": {"label": "Phaeopigment", "units": "µg L⁻¹", "column": "phae", "decimals": 3, "log": True, "maxDepth": 200},
+    "nitrite": {"label": "Nitrite", "units": "µM", "column": "no2", "decimals": 3},
+    "ammonium": {"label": "Ammonium", "units": "µM", "column": "nh4", "decimals": 3},
+    "oxygen_saturation": {"label": "Oxygen saturation", "units": "%", "column": "o2s", "decimals": 1},
+    # carbonate system (CalCOFI DIC dataset, ~12 stations per cruise: wider mask) and the CTD pH sensor
+    "dic": {"label": "Dissolved inorganic carbon", "units": "µmol kg⁻¹", "column": "dic", "decimals": 1, "maxGapKm": 140},
+    "alkalinity": {"label": "Total alkalinity", "units": "µmol kg⁻¹", "column": "alk", "decimals": 1, "maxGapKm": 140},
+    "ph": {"label": "pH", "units": "", "column": "ph", "decimals": 3, "sources": ["ctd"]},
 }
 CHL_FLOOR = 0.01                       # ug/L, below the detection limit; keeps log10 finite
 # Derived variables (the companion repo's build_derived_variables.py), shown in
@@ -102,7 +109,8 @@ DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES, **FRACTION_VARIABLES}
 SECTION_LINES = [90.0, 80.0]
 SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "nitrate": "no3", "silicate": "sio3",
                    "n2": "n2", "dynamic_height": "dh", "wm_psa": "psa", "wm_pew": "pew", "wm_npcw": "npcw",
-                   "chlorophyll": "chl", "phaeopigment": "phae"}      # log10 ug/L, as the maps
+                   "chlorophyll": "chl", "phaeopigment": "phae",      # log10 ug/L, as the maps
+                   "nitrite": "no2", "ammonium": "nh4", "oxygen_saturation": "o2s", "dic": "dic", "alkalinity": "alk", "ph": "ph"}
 # Water masses view: properties on two isopycnals, from CTD casts only
 # (the companion repo's build_isopycnal_properties.py), written to
 # ctd/iso<surface>.json.
@@ -132,6 +140,11 @@ def build_source(key, path, label, out_dir, src_dir):
     fr = con.sql(f"""SELECT "cast", depth_m, PSA * 100 AS wm_psa, PEW * 100 AS wm_pew, NPCW * 100 AS wm_npcw
                      FROM '{os.path.join(src_dir, "CalCOFI_water_masses", f"calcofi_{key}_water_mass_fractions.parquet")}'""").df()
     df = df.merge(fr, on=["cast", "depth_m"], how="left")
+    carb = con.sql(f"""SELECT "cast", depth_m, dic, alkalinity
+                       FROM '{os.path.join(src_dir, "CalCOFI_carbonate", f"calcofi_{key}_carbonate.parquet")}'""").df()
+    df = df.merge(carb, on=["cast", "depth_m"], how="left")
+    if "ph" not in df:
+        df["ph"] = np.nan                       # bottle: no pH
     casts = con.sql(f"SELECT * FROM '{derived.format('casts')}' WHERE site_key IS NOT NULL").df()
     df["period"] = df.date.str[:7]
     # cruises: bottle has cruise_id + ship_name; CTD has cruise_key only
@@ -243,7 +256,7 @@ def main():
         "generated": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d"),
         "variables": {
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"],
-                   **{f: v[f] for f in ("log", "maxDepth") if f in v}} for k, v in VARIABLES.items()},
+                   **{f: v[f] for f in ("log", "maxDepth", "sources", "maxGapKm") if f in v}} for k, v in VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived",
                    **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": v.get("group", "derived"), "perCast": True,

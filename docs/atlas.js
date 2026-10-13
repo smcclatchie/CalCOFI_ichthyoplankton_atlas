@@ -1129,7 +1129,7 @@ function updateLayerControls() {
     : hydro && hstate.anomaly
     ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : hydro
-    ? "Temperature, salinity, density, oxygen, nutrients, chlorophyll and phaeopigment from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    ? "Temperature, salinity, density, oxygen, nutrients, carbonate system, chlorophyll and phaeopigment from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : dataset !== "ichthyo"
     ? `${meta.title}, CalCOFI cruises, ${meta.periods[0].year}–${meta.periods[meta.periods.length - 1].year}`
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
