@@ -978,7 +978,7 @@ function updateLayerControls() {
     : hydro && hstate.anomaly
     ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : hydro
-    ? "Temperature, salinity, density, oxygen and nutrients from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    ? "Temperature, salinity, density, oxygen, nutrients and chlorophyll from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
 }
 

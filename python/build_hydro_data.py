@@ -14,7 +14,7 @@ which hold every selection and quality rule; this script only reshapes them:
                                           depth, loaded on demand: station x
                                           survey month values of temperature,
                                           salinity, sigma-theta, oxygen,
-                                          nitrate, silicate, spiciness and N2
+                                          nitrate, silicate, chlorophyll (log10), spiciness and N2
   docs/data/hydro/ctd/iso<s>.json         temperature, salinity, oxygen and depth
                                           on the sigma-theta 25.8 and 26.4 surfaces
                                           (Water masses view; CTD only)
@@ -39,6 +39,7 @@ import os
 import shutil
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -55,7 +56,13 @@ VARIABLES = {
     "oxygen": {"label": "Dissolved oxygen", "units": "ml L⁻¹", "column": "o", "decimals": 3},
     "nitrate": {"label": "Nitrate", "units": "µM", "column": "no3", "decimals": 2},   # not "n": that key is the cast count
     "silicate": {"label": "Silicate", "units": "µM", "column": "sio3", "decimals": 2},
+    # Chlorophyll a: stored as log10(ug/L) (each cast floored at CHL_FLOOR first), so
+    # station means are geometric means, the map and contours are on a log scale
+    # and an anomaly is a log ratio to normal; the atlas shows ug/L (or the ratio).
+    # 0-200 m: bottle chlorophyll stops at 200 m, the CTD fluorometer reads ~0 below.
+    "chlorophyll": {"label": "Chlorophyll a", "units": "µg L⁻¹", "column": "chl", "decimals": 3, "log": True, "maxDepth": 200},
 }
+CHL_FLOOR = 0.01                       # ug/L, below the detection limit; keeps log10 finite
 # Derived variables (the companion repo's build_derived_variables.py), shown in
 # the atlas's Derived variables view. At each standard depth (N2: the interval
 # from that depth to the next):
@@ -109,6 +116,7 @@ def dump(obj, path):
 def build_source(key, path, label, out_dir, src_dir):
     con = duckdb.connect()
     df = con.sql(f"SELECT * FROM '{path}' WHERE site_key IS NOT NULL").df()
+    df["chlorophyll"] = np.log10(df["chlorophyll"].clip(lower=CHL_FLOOR))      # see VARIABLES
     derived = os.path.join(src_dir, "CalCOFI_derived", f"calcofi_{key}_derived_{{}}.parquet")
     dd = con.sql(f"SELECT \"cast\", depth_m, spiciness, n2 FROM '{derived.format('depths')}'").df()
     df = df.merge(dd, on=["cast", "depth_m"], how="left")
@@ -222,7 +230,8 @@ def main():
     meta = {
         "generated": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d"),
         "variables": {
-            **{k: {"label": v["label"], "units": v["units"], "column": v["column"]} for k, v in VARIABLES.items()},
+            **{k: {"label": v["label"], "units": v["units"], "column": v["column"],
+                   **{f: v[f] for f in ("log", "maxDepth") if f in v}} for k, v in VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived",
                    **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": v.get("group", "derived"), "perCast": True,

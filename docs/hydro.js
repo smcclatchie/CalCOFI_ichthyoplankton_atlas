@@ -62,6 +62,12 @@ const HYDRO_STYLES = {
     stops: ["#c9d4bf", "#aec7aa", "#91ba98", "#71ae8b", "#4ea183", "#29937f", "#13837b", "#137275", "#19616c", "#1c5062", "#1c4058", "#192f4d", "#151d44"],
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
+  // Chlorophyll a: as the Fishing Maps chlorophyll map, the SST rainbow, here on
+  // a log scale (the values are log10 ug/L; see logLevels / fmtLog).
+  chlorophyll: {
+    stops: ["#0030f5", "#1769ad", "#39886d", "#47a325", "#82b513", "#bcc31c", "#f1ca24", "#f9b020", "#f68e19", "#f16715", "#f55945", "#ff749d", "#fd92fa"],
+    smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
+  },
   // Derived variables. Depths run light (shallow) to dark (deep); the mixed
   // layer depth uses the Fishing Maps MLD palette (cmocean dense).
   spiciness: {     // cmocean thermal, 0-0.92
@@ -120,6 +126,8 @@ const ANOMALY_STYLES = {
   salinity: ["#181c43", "#293888", "#0c5ebe", "#3888ba", "#75aabe", "#b6c9cf", "#f1eceb", "#dfbbb0", "#d08b73", "#bf573a", "#a52125", "#730e27", "#3c0912"],
   sigma_theta: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
   oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
+  // Chlorophyll: a log ratio to normal; below normal brown, above green.
+  chlorophyll: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   nitrate: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
   silicate: ["#5f185a", "#921f63", "#bf365b", "#e05e53", "#f18f63", "#f6c9a0", "#f3f1ec", "#c9d4bf", "#91ba98", "#4ea183", "#13837b", "#19616c", "#151d44"],
   // Derived: the positive side from the variable's own palette (deeper, more
@@ -216,9 +224,9 @@ const hVar = () => hmeta.variables[hstate.variable];
 const hData = () => hcache.get(hKey());
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
 const hSourceWord = () => (hSrcKey() === "ctd" ? "CTD" : "bottle");
-const hUnits = () => (hVar().units ? ` ${hVar().units}` : "");
-const hFmt = (v) => v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
-  z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3);
+const hUnits = () => (hVar().units && !(hVar().log && hstate.anomaly) ? ` ${hVar().units}` : "");   // a ratio has none
+const hFmt = (v) => (hVar().log ? fmtLog(v) : v.toFixed({ temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
+  z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3));
 
 async function loadHydroMeta() {
   if (!hmeta) hmeta = await getJSON("hydro/meta.json");
@@ -509,6 +517,34 @@ function fieldAt(f, lon, lat) {
 
 // ------------------------------------------------------------ colour scale --
 
+// Log-scale variables (chlorophyll, stored as log10): contour levels at 1-2-5
+// values (0.1, 0.2, 0.5, 1 ...), or for anomalies (log ratios to normal) at
+// ratios (/2, /1.5, x1, x1.5, x2 ...), each covering [lo, hi]; the step is
+// the smallest gap (used only for rounding).
+const LOG_VALUES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100].map(Math.log10);
+const LOG_RATIOS = [1.5, 2, 3, 5, 10, 20, 50, 100].map(Math.log10);
+const isLog = () => Boolean(hVar()?.log);
+function logLevels(lo, hi, anomaly) {
+  const cand = anomaly ? [...LOG_RATIOS.map((r) => -r).reverse(), 0, ...LOG_RATIOS] : LOG_VALUES;
+  let i0 = cand.findLastIndex((c) => c <= lo + 1e-9), i1 = cand.findIndex((c) => c >= hi - 1e-9);
+  if (i0 < 0) i0 = 0;
+  if (i1 < 0) i1 = cand.length - 1;
+  let levels = cand.slice(i0, i1 + 1);
+  if (levels.length < 2) levels = [cand[Math.max(0, i0 - 1)], cand[Math.min(cand.length - 1, i1 + 1)]];
+  const step = Math.min(...levels.slice(1).map((v, i) => v - levels[i]));
+  return { levels, step };
+}
+// Levels for the variable shown: log-scale or the usual even steps.
+const levelsFor = (lo, hi) => (isLog() ? logLevels(lo, hi, hstate.anomaly) : niceLevels(lo, hi));
+// A log10 value as ug/L, or a log ratio as x2 / /2 (x1 at normal).
+function fmtLog(v) {
+  const r = 10 ** v;
+  const sig = (x) => String(+x.toPrecision(x >= 10 ? 3 : 2));
+  if (!hstate.anomaly) return sig(r);
+  if (Math.abs(v) < 1e-9) return "×1";
+  return r > 1 ? `×${sig(r)}` : `÷${sig(1 / r)}`;
+}
+
 function niceLevels(lo, hi) {
   const step = NICE_STEPS.find((s) => (hi - lo) / s <= MAX_INTERVALS) || NICE_STEPS[NICE_STEPS.length - 1];
   const a = Math.floor(lo / step + 1e-9) * step, b = Math.ceil(hi / step - 1e-9) * step;
@@ -606,7 +642,7 @@ function hydroScale(field) {
     hi = m;
   }
   if (!(hi > lo)) hi = lo + 0.01;
-  const { levels, step } = niceLevels(lo, hi);
+  const { levels, step } = levelsFor(lo, hi);
   const style = hStyle(), n = levels.length - 1, a = levels[0], b = levels[n];
   // Bands take the palette at their centres; the smooth fill is continuous.
   const colors = Array.from({ length: n }, (_, i) => rgbText(paletteAt(style.stops, (i + 0.5) / n)));
@@ -916,10 +952,11 @@ function anomalyNote() {
   const left = hAnomalyDropped ? `; ${hAnomalyDropped} station${hAnomalyDropped > 1 ? "s" : ""} without one left out` : "";
   return `<span class="map-note">${base}${left}.</span>`;
 }
-const hSigned = (v) => `${hstate.anomaly && v > 0 ? "+" : ""}${hFmt(v)}`.replace("-", "−");
+const hSigned = (v) => (isLog() ? hFmt(v) : `${hstate.anomaly && v > 0 ? "+" : ""}${hFmt(v)}`.replace("-", "−"));
 // Axis and colour-bar ticks: anomalies get a sign (+ / true minus).
 const signedValue = (v) => (v > 0 ? `+${+v.toFixed(3)}` : String(+v.toFixed(3)).replace("-", "−"));
 const signedTick = (v) => {
+  if (isLog()) return fmtLog(v);
   const t = String(+v.toFixed(3));
   return hstate.anomaly ? (v > 0 ? `+${t}` : t.replace("-", "−")) : t;
 };
@@ -986,7 +1023,7 @@ function hydroColourBar(width, lv = hLevels, signed = hstate.anomaly) {
     if (i % every) return;
     const x = m.l + i * bw;
     parts.push(`<line x1="${x}" x2="${x}" y1="${2 + h}" y2="${5 + h}" stroke="#85837c"/>`);
-    parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${signed ? signedValue(v) : String(+v.toFixed(3))}</text>`);
+    parts.push(`<text x="${x}" y="${h + 16}" text-anchor="middle" font-size="10" fill="#5b5a55">${isLog() && lv === hLevels ? fmtLog(v) : signed ? signedValue(v) : String(+v.toFixed(3))}</text>`);
   });
   return `<svg class="colour-bar" viewBox="0 0 ${width} ${h + 20}" width="${width}" height="${h + 20}" role="img" aria-label="Colour scale">${parts.join("")}</svg>`;
 }
@@ -999,15 +1036,18 @@ function renderHydroLegend() {
   renderCompareControls();
   if (!hLevels) { $("hydro-scale-note").textContent = "Too few stations to contour."; return; }
   const top = +hLevels.levels[hLevels.levels.length - 1].toFixed(3);
-  const range = hstate.anomaly ? `−${top} to +${top}` : `${+hLevels.levels[0].toFixed(3)}–${top}`;
-  const contours = `contours every ${+hLevels.step.toFixed(3)}`;
+  const L = hLevels.levels;
+  const range = isLog() ? `${fmtLog(L[0])} to ${fmtLog(L[L.length - 1])}${hUnits()}`
+    : hstate.anomaly ? `−${top} to +${top}` : `${+hLevels.levels[0].toFixed(3)}–${top}`;
+  const contours = isLog() ? (hstate.anomaly ? "contours at ratios to normal, log scale" : "contours at 1–2–5 values, log scale")
+    : `contours every ${+hLevels.step.toFixed(3)}`;
   const season = hShownSeason();
   const clim = hstate.anomaly
     ? ` Anomaly from each station's ${state.mode === "month" ? "calendar-month" : "seasonal"} mean over the whole ${hSourceWord()} record ` +
       `(${hSrc().years[0]}–${hSrc().years[1]}), stations with at least ${ANOMALY_MIN_YEARS} years.`
     : "";
   if (hstate.scale === "floating") {
-    $("hydro-scale-note").textContent = `Floating${hstate.anomaly ? ", symmetric about zero" : ""}: ${range}, fitted to this map (${contours}). Colours compare within this map only.${clim}`;
+    $("hydro-scale-note").textContent = `Floating${hstate.anomaly ? (isLog() ? ", symmetric about normal (×1)" : ", symmetric about zero") : ""}: ${range}, fitted to this map (${contours}). Colours compare within this map only.${clim}`;
     return;
   }
   const [a, b] = hstate.compare || [];
@@ -1018,7 +1058,7 @@ function renderHydroLegend() {
   const shown = hShownYear();
   const outside = shown < a || shown > b ? ` This map (${shown}) is outside the years compared, so it may pass the ends.` : "";
   $("hydro-scale-note").textContent = hLevels.fixed
-    ? `Fixed for comparison${hstate.anomaly ? ", symmetric about zero" : ""}: ${range} (${contours}), spanning every station value in the ${hLevels.maps} ${which} of ${years}, so those maps share colours and contour levels.${outside}${clim}`
+    ? `Fixed for comparison${hstate.anomaly ? (isLog() ? ", symmetric about normal (×1)" : ", symmetric about zero") : ""}: ${range} (${contours}), spanning every station value in the ${hLevels.maps} ${which} of ${years}, so those maps share colours and contour levels.${outside}${clim}`
     : `No ${hSourceWord()} data for ${years}${hstate.scale === "season" ? ` in ${season}` : ""}; showing a floating scale.`;
 }
 
@@ -1106,15 +1146,20 @@ function renderHydroChart() {
   const vs = series.map((d) => d.v);
   // Anomalies: a symmetric axis, labelled through zero.
   const span = Math.max(...vs.map(Math.abs), 0.01);
-  const { levels, step } = hstate.anomaly ? niceLevels(-span, span) : niceLevels(Math.min(...vs), Math.max(...vs));
+  const { levels, step } = hstate.anomaly ? levelsFor(-span, span) : levelsFor(Math.min(...vs), Math.max(...vs));
   const y0 = levels[0], y1 = levels[levels.length - 1];
   const x0 = hSrc().years[0] - 1, x1 = hSrc().years[1] + 1;
   const sx = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r);
   const sy = (v) => H - m.b - ((v - y0) / (y1 - y0)) * (H - m.t - m.b);
   // Gridlines on multiples of a tick step, so zero is always one of them.
   const tick = step * Math.ceil(levels.length / 6);
-  levels.forEach((v) => {
-    if (Math.abs(v / tick - Math.round(v / tick)) > 1e-6) return;
+  // Log scales: the levels themselves (uneven in log), every other one when
+  // there are many, keeping x1 (normal) for anomalies.
+  const anchor = Math.max(0, levels.findIndex((v) => Math.abs(v) < 1e-9));
+  const shown = (v, i) => (isLog() ? levels.length <= 7 || (i - anchor) % 2 === 0
+    : Math.abs(v / tick - Math.round(v / tick)) <= 1e-6);
+  levels.forEach((v, i) => {
+    if (!shown(v, i)) return;
     parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${sy(v)}" y2="${sy(v)}" stroke="#ecebe6"/>`);
     parts.push(`<text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end" font-size="11" fill="#85837c">${signedTick(v)}</text>`);
   });
