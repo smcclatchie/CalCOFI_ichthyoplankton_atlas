@@ -361,7 +361,8 @@ async function renderSection() {
   const toKm = (x) => ((x - 0.5) / (grid.nx - 1)) * geo.xmax, toZ = (y) => ((y - 0.5) / (grid.nz - 1)) * SECTION_DEPTH;
   const ringsKm = (rings) => rings.map((ring) => ring.map(([x, y]) => [toKm(x), toZ(y)]));
   const mask = d3.contours().size([grid.nx, grid.nz]).thresholds([0.5])(Array.from(grid.g, (q) => (Number.isFinite(q) ? 1 : 0)))[0];
-  const lines = d3.contours().size([grid.nx, grid.nz]).thresholds(scale.levels)(Array.from(filled)).filter((c) => c.coordinates.length);
+  const eps = scale.step * 1e-6;       // flat at a level (e.g. 100% of a water mass): no rounding-error rings (as hydroGeometry)
+  const lines = d3.contours().size([grid.nx, grid.nz]).thresholds(scale.levels)(Array.from(filled, (z) => Math.round(z / eps) * eps)).filter((c) => c.coordinates.length);
   const labels = [];
   for (const c of lines) {
     const ring = c.coordinates.flat().reduce((a, b) => (b.length > a.length ? b : a));

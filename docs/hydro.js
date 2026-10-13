@@ -628,7 +628,12 @@ function toLonLat(f, multipolygon) {
 
 function hydroGeometry(f, scale) {
   const thresholds = [f.zMin - 1, ...scale.levels];
-  const contours = d3.contours().size([f.nx, f.ny]).thresholds(thresholds)(Array.from(f.z));
+  // Rounded to a millionth of the contour interval first: a field flat at a
+  // contour level (e.g. stations at exactly 100% of a water mass) otherwise
+  // wobbles either side of it by rounding error (~1e-13) and the contour
+  // traces every wobble as a ring of its own.
+  const eps = scale.step * 1e-6;
+  const contours = d3.contours().size([f.nx, f.ny]).thresholds(thresholds)(Array.from(f.z, (z) => Math.round(z / eps) * eps));
   const fills = [], lines = [];
   contours.forEach((c, i) => {
     if (!c.coordinates.length) return;

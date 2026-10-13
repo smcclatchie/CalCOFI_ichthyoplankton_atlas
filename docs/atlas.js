@@ -1706,8 +1706,13 @@ function writeHash() {
 }
 
 // The view in a link: the query string (?taxon=...), or the fragment of
-// links made before 2026-10-13 (#taxon=...).
-const viewString = () => (location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
+// links made before 2026-10-13 (#taxon=...); the plain address opens the
+// landing view (a trial one, 2026-10-13: spring 2016 PEW anomaly at 50 m,
+// warm-water larvae overlaid, the line 90 section; to be redesigned).
+const LANDING_VIEW = "taxon=group%3Awarm-water&stage=larva&sampling=standard&net=CB&view=season&layer=anomaly&src=ctd" +
+  "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016";
+const linkView = () => (location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
+const viewString = () => linkView() || LANDING_VIEW;
 
 function readHash() {
   const params = new URLSearchParams(viewString());
@@ -2034,7 +2039,7 @@ async function init() {
   else state.periodPos = Math.max(0, available.length - 1);
   // A shared link's station wins; otherwise open the time series at the default station.
   if (fromHash.station >= 0) state.station = fromHash.station;
-  else if (!viewString() && state.layer === "ichthyo") {
+  else if (!linkView() && state.layer === "ichthyo") {
     const station = meta.stations.findIndex((s) => s.key === DEFAULT_STATION);
     if (station >= 0) state.station = station;
   }
