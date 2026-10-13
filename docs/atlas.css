@@ -148,7 +148,8 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   padding: 18px 22px 16px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22); font-size: 14px; line-height: 1.5; color: var(--text-secondary); }
 .welcome[hidden] { display: none; }
-.welcome h2 { margin: 0 0 8px; font-size: 18px; color: var(--text-primary); }
+.welcome-logo { display: block; width: 96px; height: 96px; margin: 0 auto 10px; border-radius: 6px; }
+.welcome h2 { margin: 0 0 8px; font-size: 18px; color: var(--text-primary); text-align: center; }
 .welcome p { margin: 0 0 8px; }
 .welcome ul { margin: 0 0 12px; padding-left: 18px; }
 .welcome button { display: block; margin-left: auto; }

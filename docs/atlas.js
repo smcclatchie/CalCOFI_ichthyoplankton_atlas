@@ -2195,6 +2195,7 @@ function setupWelcome() {
   let seen = false;
   try { seen = localStorage.getItem("atlas-welcome-closed") === "1"; } catch (e) { /* storage blocked */ }
   if (!ARRIVED_PLAIN || seen) return;
+  $("welcome-years").textContent = String(new Date().getFullYear() - 1949);    // CalCOFI began in 1949
   $("welcome").hidden = false;
   $("welcome-close").addEventListener("click", () => {
     $("welcome").hidden = true;
