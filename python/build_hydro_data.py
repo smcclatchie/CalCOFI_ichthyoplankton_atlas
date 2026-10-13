@@ -54,6 +54,7 @@ VARIABLES = {
     "salinity": {"label": "Salinity", "units": "", "column": "s", "decimals": 3},
     "sigma_theta": {"label": "Density (σθ)", "units": "kg m⁻³", "column": "d", "decimals": 3},
     "oxygen": {"label": "Dissolved oxygen", "units": "ml L⁻¹", "column": "o", "decimals": 3},
+    "oxygen_saturation": {"label": "Oxygen saturation", "units": "%", "column": "o2s", "decimals": 1},
     "nitrate": {"label": "Nitrate", "units": "µM", "column": "no3", "decimals": 2},   # not "n": that key is the cast count
     "silicate": {"label": "Silicate", "units": "µM", "column": "sio3", "decimals": 2},
     # Chlorophyll a: stored as log10(ug/L) (each cast floored at CHL_FLOOR first), so
@@ -64,7 +65,6 @@ VARIABLES = {
     "phaeopigment": {"label": "Phaeopigment", "units": "µg L⁻¹", "column": "phae", "decimals": 3, "log": True, "maxDepth": 200},
     "nitrite": {"label": "Nitrite", "units": "µM", "column": "no2", "decimals": 3},
     "ammonium": {"label": "Ammonium", "units": "µM", "column": "nh4", "decimals": 3},
-    "oxygen_saturation": {"label": "Oxygen saturation", "units": "%", "column": "o2s", "decimals": 1},
     # carbonate system (CalCOFI DIC dataset, ~12 stations per cruise: wider mask) and the CTD pH sensor
     "dic": {"label": "Dissolved inorganic carbon", "units": "µmol kg⁻¹", "column": "dic", "decimals": 1, "maxGapKm": 140},
     "alkalinity": {"label": "Total alkalinity", "units": "µmol kg⁻¹", "column": "alk", "decimals": 1, "maxGapKm": 140},
