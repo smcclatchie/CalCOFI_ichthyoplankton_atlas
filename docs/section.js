@@ -34,13 +34,14 @@
 "use strict";
 
 const SECTION_COLUMNS = { temperature: "t", salinity: "s", sigma_theta: "d", oxygen: "o", nitrate: "no3", silicate: "sio3",
-  wm_psa: "psa", wm_pew: "pew", wm_npcw: "npcw" };
+  wm_psa: "psa", wm_pew: "pew", wm_npcw: "npcw", chlorophyll: "chl" };
 const SECTION_EXTRA = {
   n2: { label: "Stability (N²)", units: "10⁻⁴ s⁻²", col: "n2", style: "n2", interval: true },
   geovel: { label: "Geostrophic velocity, relative to 500 dbar (poleward +)", units: "cm s⁻¹", style: "salinity", diverging: true, geostrophic: true },
 };
 const SECTION_MAX_GAP_KM = 150;
 const SECTION_DEPTH = 500;
+const sectionDepth = (v) => v.maxDepth || SECTION_DEPTH;      // the depth axis: 0-200 m for chlorophyll
 const sstate = { display: "map", line: 90, variable: "map" };   // variable: "map" (the map's), "n2", "geovel"
 const scache = new Map();
 let sLoadToken = 0;
@@ -58,7 +59,10 @@ function sVar() {
   if (hstate.anomaly && hstate.variable === "n2") return { ...SECTION_EXTRA.n2, label: hLabel(), anomaly: true, diverging: true };
   const col = SECTION_COLUMNS[hstate.variable];
   if (!col) return null;
-  return { label: hLabel(), units: hVar().units, col, style: styleKey(), anomaly: hstate.anomaly, diverging: hstate.anomaly };
+  // Log-scale variables (chlorophyll): values log10, shown as ug/L or as a ratio to normal (no unit).
+  const log = Boolean(hVar().log);
+  return { label: hLabel(), units: log && hstate.anomaly ? "" : hVar().units, col, style: styleKey(), anomaly: hstate.anomaly,
+    diverging: hstate.anomaly, log, maxDepth: hVar().maxDepth };
 }
 
 // Climatology along the line: "station|depth index|slot" -> mean, for one column.
@@ -154,7 +158,7 @@ function sectionProfiles(d, periods, geo) {
       if (!geo.x.has(d.st[i]) || geo.x.get(d.st[i]) > geo.xmax) continue;
       if (!acc.has(d.st[i])) acc.set(d.st[i], {});
       const a = acc.get(d.st[i]);
-      for (const col of ["t", "s", "d", "o", "no3", "sio3", "n2", "dh", "psa", "pew", "npcw"]) {
+      for (const col of ["t", "s", "d", "o", "no3", "sio3", "n2", "dh", "psa", "pew", "npcw", "chl"]) {
         const v = d[col]?.[i];
         if (v === null || v === undefined) continue;
         a[col] = a[col] || depths.map(() => ({ sum: 0, n: 0 }));
@@ -196,7 +200,7 @@ function sectionColumns(profiles, v) {
     (p[v.col] || []).forEach((val, k) => {
       if (val === null) return;
       const z = v.interval ? (depths[k] + depths[k + 1]) / 2 : depths[k];    // N2: the middle of its interval
-      if (Number.isFinite(z)) pts.push([z, val]);
+      if (Number.isFinite(z) && !(v.maxDepth && z > v.maxDepth)) pts.push([z, val]);     // chlorophyll: 0-200 m
     });
     return { x: p.x, pts };
   }).filter((c) => c.pts.length);
@@ -232,7 +236,7 @@ function sectionScale(values, fixed, v) {
   if (fixed) ({ lo, hi } = fixed);
   if (v.diverging) { const m = Math.max(Math.abs(lo), Math.abs(hi), 0.1); lo = -m; hi = m; }
   if (!(hi > lo)) hi = lo + 0.01;
-  const { levels, step } = niceLevels(lo, hi);
+  const { levels, step } = v.log ? logLevels(lo, hi, v.anomaly) : niceLevels(lo, hi);
   const style = HYDRO_STYLES[v.style], n = levels.length - 1, a = levels[0], b = levels[n];
   const stops = v.anomaly ? ANOMALY_STYLES[v.style] : v.diverging ? ANOMALY_STYLES.salinity : style.stops;
   const smooth = v.diverging ? true : style.smooth;
@@ -245,8 +249,8 @@ function sectionScale(values, fixed, v) {
 }
 
 // Grid in (distance along the line, depth).
-function sectionGrid(cols, xmax, nx = 300, nz = 126) {
-  const zAt = (j) => (j / (nz - 1)) * SECTION_DEPTH, xAt = (i) => (i / (nx - 1)) * xmax;
+function sectionGrid(cols, xmax, depth = SECTION_DEPTH, nx = 300, nz = 126) {
+  const zAt = (j) => (j / (nz - 1)) * depth, xAt = (i) => (i / (nx - 1)) * xmax;
   const colVals = cols.map((c) => {
     const v = new Float64Array(nz).fill(NaN), pts = c.pts;
     for (let j = 0; j < nz; j++) {
@@ -329,7 +333,7 @@ async function renderSection() {
   const values = sectionValues(cols);
   const fixed = hstate.scale !== "floating" ? sectionRange(d, geo, v) : null;
   const scale = sectionScale(values, fixed, v);
-  const grid = sectionGrid(cols, geo.xmax);
+  const grid = sectionGrid(cols, geo.xmax, sectionDepth(v));
   // image, x = distance (left to right), y = depth
   const canvas = document.createElement("canvas");
   canvas.width = grid.nx; canvas.height = grid.nz;
@@ -358,7 +362,7 @@ async function renderSection() {
   const fmin = Math.min(...values) - Math.abs(Math.max(...values) - Math.min(...values)) - 1;
   for (let k = 0; k < filled.length; k++) if (!Number.isFinite(filled[k])) filled[k] = fmin;
   // grid coordinates -> (km, depth m)
-  const toKm = (x) => ((x - 0.5) / (grid.nx - 1)) * geo.xmax, toZ = (y) => ((y - 0.5) / (grid.nz - 1)) * SECTION_DEPTH;
+  const toKm = (x) => ((x - 0.5) / (grid.nx - 1)) * geo.xmax, toZ = (y) => ((y - 0.5) / (grid.nz - 1)) * sectionDepth(v);
   const ringsKm = (rings) => rings.map((ring) => ring.map(([x, y]) => [toKm(x), toZ(y)]));
   const mask = d3.contours().size([grid.nx, grid.nz]).thresholds([0.5])(Array.from(grid.g, (q) => (Number.isFinite(q) ? 1 : 0)))[0];
   const eps = scale.step * 1e-6;       // flat at a level (e.g. 100% of a water mass): no rounding-error rings (as hydroGeometry)
@@ -372,7 +376,7 @@ async function renderSection() {
     });
     if (inside.length > 8) {
       const [x, y] = inside[Math.floor(inside.length / 2)];
-      labels.push({ km: toKm(x), z: toZ(y), t: v.diverging ? signedValue(c.value) : String(+c.value.toFixed(3)) });
+      labels.push({ km: toKm(x), z: toZ(y), t: sFmt(c.value, v) });
     }
   }
   sCur = {
@@ -404,6 +408,7 @@ function showSectionMessage(text) {
 function drawSection() {
   if (!sCur || !sectionShown()) return;
   const { v, geo, scale, grid, labels } = sCur;
+  const D = sectionDepth(v);
   const box = $("section-chart");
   const W = box.clientWidth || 600, H = Math.max(140, (box.clientHeight || 260) - 30);   // less the note lines
   const m = { l: 60, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
@@ -417,7 +422,7 @@ function drawSection() {
   const R = W - m.r, maxW = R - m.l;
   const b = -Math.abs(sxx > 0 ? sxy / sxx : maxW / geo.xmax), a0 = R;
   m.l = R - Math.min(maxW, -b * geo.xmax);
-  const px = (km) => a0 + b * km, py = (z) => m.t + (z / SECTION_DEPTH) * ph;
+  const px = (km) => a0 + b * km, py = (z) => m.t + (z / D) * ph;
   const path = (rings) => rings.map((r) => "M" + r.map(([x, z]) => `${x.toFixed(2)},${py(z).toFixed(1)}`).join("L")).join("");
   const font = 'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"';
   const parts = [];
@@ -445,7 +450,7 @@ function drawSection() {
   // axes: depth (left), with the map's depth (or depth interval) highlighted
   const tick = 'font-size="11" fill="#5b5a55"';
   const md = mapDepth(), mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
-  for (let z = 0; z <= SECTION_DEPTH; z += 100) {
+  for (let z = 0; z <= D; z += D <= 200 ? 50 : 100) {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
     if (mark && py(z) > mark.y0 - 6 && py(z) < mark.y1 + 6) continue;      // under the highlight
     parts.push(`<text x="${m.l - 6}" y="${py(z) + 4}" text-anchor="end" ${tick} ${font}>${z}</text>`);
@@ -494,12 +499,12 @@ function drawSection() {
   box.appendChild(tip);
   svg.addEventListener("mousemove", (e) => {
     const r = svg.getBoundingClientRect(), X = e.clientX - r.left, Y = e.clientY - r.top;
-    const km = (X - a0) / b, z = ((Y - m.t) / ph) * SECTION_DEPTH;
-    const i = Math.round((km / geo.xmax) * (grid.nx - 1)), j = Math.round((z / SECTION_DEPTH) * (grid.nz - 1));
+    const km = (X - a0) / b, z = ((Y - m.t) / ph) * D;
+    const i = Math.round((km / geo.xmax) * (grid.nx - 1)), j = Math.round((z / D) * (grid.nz - 1));
     const val = X >= m.l && X <= W - m.r && i >= 0 && j >= 0 && i < grid.nx && j < grid.nz ? grid.g[j * grid.nx + i] : NaN;
     if (!Number.isFinite(val)) { tip.hidden = true; return; }
     tip.hidden = false;
-    tip.textContent = `${v.diverging ? signedValue(+val.toFixed(v.anomaly ? 2 : 1)) : +val.toFixed(3)}${v.units ? ` ${v.units}` : ""} · ${Math.round(z)} m · ${Math.round(km)} km`;
+    tip.textContent = `${sFmt(val, v, v.diverging ? (v.anomaly ? 2 : 1) : 3)}${v.units ? ` ${v.units}` : ""} · ${Math.round(z)} m · ${Math.round(km)} km`;
     tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, X - tip.offsetWidth / 2))}px`;
     tip.style.top = `${Y - 34}px`;
   });
@@ -525,17 +530,22 @@ function verticalColourBar(scale, x, y, h, v, font) {
     if (i % every && i !== n) return;
     if (i === n && n % every && (n % every) < every / 2) return;    // the top tick would crowd its neighbour
     parts.push(`<line x1="${x + w}" x2="${x + w + 3}" y1="${vy(val)}" y2="${vy(val)}" stroke="#85837c"/>`);
-    parts.push(`<text x="${x + w + 5}" y="${vy(val) + 3.5}" font-size="10" fill="#5b5a55" ${font}>${v.diverging ? signedValue(val) : +val.toFixed(3)}</text>`);
+    parts.push(`<text x="${x + w + 5}" y="${vy(val) + 3.5}" font-size="10" fill="#5b5a55" ${font}>${sFmt(val, v)}</text>`);
   });
   if (v.units) parts.push(`<text x="${x}" y="${y - 12}" font-size="10" fill="#5b5a55" ${font}>${v.units}</text>`);
   return parts.join("");
 }
 
+// A section value as text: ug/L or x/÷ ratio (log scale), signed (anomalies, velocity) or plain.
+const sFmt = (val, v, dp = 3) => (v.log ? fmtLog(val) : v.diverging ? signedValue(+val.toFixed(dp)) : String(+val.toFixed(dp)));
+
 function sectionNote(scale, v) {
   const top = +scale.levels.at(-1).toFixed(3);
-  const range = v.diverging ? `−${top} to +${top}` : `${+scale.levels[0].toFixed(3)}–${top}`;
+  const range = v.log ? `${fmtLog(scale.levels[0])} to ${fmtLog(scale.levels.at(-1))}`
+    : v.diverging ? `−${top} to +${top}` : `${+scale.levels[0].toFixed(3)}–${top}`;
   const units = v.units ? ` ${v.units}` : "";
-  const contours = `contours every ${+scale.step.toFixed(3)}${units}`;
+  const contours = v.log ? `contours at ${v.anomaly ? "ratios to normal" : "1–2–5 values"}, log scale`
+    : `contours every ${+scale.step.toFixed(3)}${units}`;
   if (hstate.scale !== "floating" && scale.fixed) {
     const season = hstate.scale === "season" ? `, ${hShownSeason()}` : "";
     return `Fixed scale, ${range}${units}: it covers every value in the ${scale.maps} sections of ${hstate.compare.join("–")}${season}, ` +
@@ -544,7 +554,7 @@ function sectionNote(scale, v) {
   }
   const clim = v.anomaly ? ` Anomalies from each station's mean for this ${state.mode === "month" ? "calendar month" : "season"} at each depth, ` +
     `${hSrc().years[0]}–${hSrc().years[1]} (${ANOMALY_MIN_YEARS}+ years); grey also where there is no climatology.` : "";
-  return `Scale fitted to this section, ${range}${units}${v.diverging ? ", symmetric about zero" : ""}; ${contours}. Grey: no data (below the deepest sample).${clim}`;
+  return `Scale fitted to this section, ${range}${units}${v.diverging ? (v.log ? ", symmetric about normal (×1)" : ", symmetric about zero") : ""}; ${contours}. Grey: no data (below the deepest sample)${v.maxDepth ? `; the section stops at ${v.maxDepth} m` : ""}.${clim}`;
 }
 
 function addSectionLayers() {
