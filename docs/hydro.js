@@ -72,6 +72,10 @@ const HYDRO_STYLES = {
     stops: ["#000c7d", "#0019a1", "#002cba", "#0046b8", "#005fa4", "#007789", "#1c8f62", "#30a52f", "#33bb1a", "#36d219", "#73e31b", "#c3ed1e", "#fff123"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
   },
+  secchi: {        // cmocean deep: shallow (turbid) light, deep (clear) dark
+    stops: ["#fdfecc", "#d9f2c4", "#b2e4ba", "#8cd5b5", "#6dc3b3", "#58b0b2", "#4b9db0", "#448aae", "#4176a9", "#40639f", "#3f4f8f", "#3a3e72", "#281a2c"],
+    smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
+  },
   nitrite: {       // cmocean solar
     stops: ["#521e22", "#6a2425", "#822d22", "#953a1d", "#a54a17", "#b25d14", "#bd7113", "#c78716", "#cf9c1d", "#d6b327", "#dbcb32", "#dfe33e", "#e1fd4b"],
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
@@ -170,6 +174,7 @@ const ANOMALY_STYLES = {
   sigma_theta: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
   oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
   // Chlorophyll (and integrated chlorophyll): a log ratio to normal; below normal brown, above green.
+  secchi: ANOM_BALANCE,
   nitrite: ANOM_NUTRIENT,
   ammonium: ANOM_NUTRIENT,
   oxygen_saturation: ANOM_OXYGEN,
@@ -242,7 +247,8 @@ const hSrc = () => hmeta.sources[hSrcKey()];
 // (derived variables), "watermass" (properties on isopycnals) or "anomaly"
 // (departures from climatology, of any of them).
 const hView = () => (hstate.anomaly ? "anomaly" : hstate.derived ? "derived" : hstate.watermass ? "watermass" : "hydro");
-const VIEW_GROUPS = { hydro: [undefined], derived: ["derived"], watermass: ["isopycnal", "fraction", "dynamic"] };
+// "hydro" group: per-cast variables shown in the Hydrography view (Secchi depth).
+const VIEW_GROUPS = { hydro: [undefined, "hydro"], derived: ["derived"], watermass: ["isopycnal", "fraction", "dynamic"] };
 const viewAllows = (key, view = hView()) => view === "anomaly" || VIEW_GROUPS[view].includes(hmeta.variables[key].group);
 const isIso = () => hVar().group === "isopycnal";
 const TERNARY_URL = "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0";
@@ -277,7 +283,7 @@ const hData = () => hcache.get(hKey());
 const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.month - 1]} ${x.year}`; };
 const hSourceWord = () => (hSrcKey() === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units && !(hVar().log && hstate.anomaly) ? ` ${hVar().units}` : "");   // a ratio has none
-const hFmt = (v) => (hVar().log ? fmtLog(v) : v.toFixed({ nitrite: 2, ammonium: 2, oxygen_saturation: 1, dic: 1, alkalinity: 1, ph: 3, temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
+const hFmt = (v) => (hVar().log ? fmtLog(v) : v.toFixed({ secchi: 0, nitrite: 2, ammonium: 2, oxygen_saturation: 1, dic: 1, alkalinity: 1, ph: 3, temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
   z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3));
 
 async function loadHydroMeta() {
@@ -977,7 +983,7 @@ async function renderHydro() {
   $("period-label").textContent = periods.length
     ? `${when}\n${state.mode === "season" ? `${periods.length > 1 ? "Survey months" : "Survey month"} ${periods.map(hPeriodText).join(", ")} · ` : ""}${points.length} stations, ${casts} casts`
     : (when ? `${when}\n` : "") + (hVar().sources && !hVar().sources.includes(hSrcKey())
-      ? `${hVar().label} comes from CTD casts only (CalCOFI's values): choose the CTD source.`
+      ? `${hVar().label} comes from ${hVar().sources[0] === "ctd" ? "CTD" : "bottle"} casts only: choose the ${hVar().sources[0] === "ctd" ? "CTD" : "bottle"} source.`
       : `No ${hSourceWord()} data for this ${state.mode === "season" ? "season" : "selection"}` +
         (fc.features.length ? `; ${fc.features.length} ichthyoplankton stations shown.` : "."));
   renderHydroMapLabel(when, periods, showFish, fishPeriods, fc);
@@ -1028,7 +1034,7 @@ function renderHydroMapLabel(when, periods, showFish, fishPeriods, fc) {
   if (!periods.length) {
     // No casts with this variable and depth: say so, and show the tows.
     const none = hVar().sources && !hVar().sources.includes(hSrcKey())
-      ? `${hVar().label} comes from CTD casts only: choose the CTD source.`
+      ? `${hVar().label} comes from ${hVar().sources[0] === "ctd" ? "CTD" : "bottle"} casts only: choose the ${hVar().sources[0] === "ctd" ? "CTD" : "bottle"} source.`
       : `No ${hSourceWord()} data for ${lowerFirst(hTitle())} in this ${state.mode === "season" ? "season" : "month"}.`;
     const fish = showFish && fishPeriods.length
       ? `<span class="bar-title">${speciesHTML(state.taxon)}, ${overlayWhat()}</span>${colourBar(300)}${multiNote()}`
@@ -1349,7 +1355,9 @@ function setupHydroControls() {
 // or (Anomalies) both, grouped. Each view keeps its own last choice.
 function fillHydroVariables() {
   const keys = Object.keys(hmeta.variables);
-  const option = (k) => `<option value="${k}">${hmeta.variables[k].label}${hmeta.variables[k].sources ? " (CTD)" : ""}</option>`;
+  // A single-source variable says which: "(CTD)" or "(bottle)".
+  const only = (v) => (v.sources?.length === 1 ? ` (${v.sources[0] === "ctd" ? "CTD" : "bottle"})` : "");
+  const option = (k) => `<option value="${k}">${hmeta.variables[k].label}${only(hmeta.variables[k])}</option>`;
   const group = (g) => keys.filter((k) => hmeta.variables[k].group === g);
   const plain = (k) => `<option value="${k}">${hmeta.variables[k].label}</option>`;
   // Isopycnal properties are listed once per surface ("Temperature, σθ 26.4"),
@@ -1359,13 +1367,14 @@ function fillHydroVariables() {
     "</optgroup>").join("");
   $("hydro-variable").innerHTML = hView() === "anomaly"
     ? `<optgroup label="At a depth">${group(undefined).map(option).join("")}</optgroup>` +
+      `<optgroup label="Per cast">${group("hydro").map(option).join("")}</optgroup>` +
       `<optgroup label="Derived">${group("derived").map(option).join("")}</optgroup>` + iso +
       `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
       `<optgroup label="Circulation">${group("dynamic").map(plain).join("")}</optgroup>`
     : hView() === "watermass"
       ? iso + `<optgroup label="Water-mass fractions (OMP)">${group("fraction").map(plain).join("")}</optgroup>` +
         `<optgroup label="Circulation">${group("dynamic").map(plain).join("")}</optgroup>`
-      : group(VIEW_GROUPS[hView()][0]).map(option).join("");
+      : VIEW_GROUPS[hView()].flatMap((g) => group(g)).map(option).join("");
   $("hydro-variable").value = hMenuValue();
 }
 const hMenuValue = () => (isIso() ? `${hstate.variable}@${hstate.isopycnal}` : hstate.variable);

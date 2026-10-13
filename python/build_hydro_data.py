@@ -91,6 +91,9 @@ DERIVED_CAST_VARIABLES = {
     # 14C primary production integrated over the light-level bottles (bottle casts, 1984-2020): log10 mg C m-2 per half light-day
     "pp_integrated": {"label": "Primary production (¹⁴C), integrated", "units": "mg C m⁻² per half light-day", "column": "pp",
                       "decimals": 3, "sources": ["bottle"], "log": True, "maxGapKm": 140},     # ~15 stations per cruise
+    # Secchi disk depth (bottle casts, 1969-2021), in the Hydrography view
+    "secchi": {"label": "Secchi depth", "units": "m", "column": "sec", "decimals": 1, "sources": ["bottle"], "group": "hydro",
+               "maxGapKm": 140},
     # CalCOFI's 0/500 dbar dynamic height (Water masses view, "Circulation")
     "dyn_height": {"label": "Dynamic height, 0/500 dbar", "units": "dyn m", "column": "dh", "decimals": 3, "group": "dynamic"},
 }
