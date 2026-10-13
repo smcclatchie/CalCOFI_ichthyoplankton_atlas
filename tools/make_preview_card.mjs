@@ -3,13 +3,13 @@
 // The link-preview card (docs/images/preview.png, 1200 x 630, referenced by the
 // Open Graph tags in docs/index.html): the CalCOFI logo, title, summary and
 // byline over a map from the atlas itself. One card serves every link:
-// preview services run no JavaScript and never see a link's #view part.
+// preview services run no JavaScript, so they never see the map.
 //
 // It screenshots the atlas served locally, so serve docs/ first:
 //   cd docs && python3 -m http.server 8765
 // then, from the repository root (needs Node and Playwright with Chromium:
 // npm install playwright && npx playwright install chromium):
-//   node tools/make_preview_card.mjs [atlas URL] [view (the #... part)]
+//   node tools/make_preview_card.mjs [atlas URL] [view (the ?... part of a link)]
 // Defaults: http://localhost:8765/ and spring 2005 surface temperature with
 // anchovy larvae. Writes docs/images/preview.png.
 
@@ -29,7 +29,7 @@ const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--ena
 
 // 1. The map alone: no label, logo or controls.
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 }, deviceScaleFactor: 2 });
-await page.goto(`${url}#${view}`, { waitUntil: "networkidle" });
+await page.goto(`${url}?${view}`, { waitUntil: "networkidle" });
 await page.waitForTimeout(4500);
 await page.evaluate(([center, zoom]) => {
   map.jumpTo({ center, zoom });

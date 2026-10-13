@@ -1697,11 +1697,17 @@ function writeHash() {
   }
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
-  history.replaceState(null, "", `#${params}`);
+  // The view goes in the query string, not the fragment: LinkedIn (and other
+  // link wrappers) drop a link's #fragment, but keep its ?query.
+  history.replaceState(null, "", `${location.pathname}?${params}`);
 }
 
+// The view in a link: the query string (?taxon=...), or the fragment of
+// links made before 2026-10-13 (#taxon=...).
+const viewString = () => (location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
+
 function readHash() {
-  const params = new URLSearchParams(location.hash.slice(1));
+  const params = new URLSearchParams(viewString());
   const taxon = taxa.find((t) => t.key === params.get("taxon"));
   const idx = (list, value) => Math.max(0, list.indexOf(value));
   if (params.has("stage")) state.stage = idx(meta.stages, params.get("stage"));
@@ -1963,7 +1969,7 @@ async function init() {
   else state.periodPos = Math.max(0, available.length - 1);
   // A shared link's station wins; otherwise open the time series at the default station.
   if (fromHash.station >= 0) state.station = fromHash.station;
-  else if (!location.hash && state.layer === "ichthyo") {
+  else if (!viewString() && state.layer === "ichthyo") {
     const station = meta.stations.findIndex((s) => s.key === DEFAULT_STATION);
     if (station >= 0) state.station = station;
   }
