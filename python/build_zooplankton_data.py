@@ -51,7 +51,8 @@ SEASONS = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: 
            6: "summer", 7: "summer", 8: "summer", 9: "autumn", 10: "autumn", 11: "autumn"}
 NET_LABELS = {"C1": "C1: CalCOFI 1 m ring net (oblique), to 1978", "CB": "CB: CalCOFI bongo (oblique), 1978 onward",
               "KR": "CalCOFI oblique net tows (krill sorted by Brinton & Townsend)",
-              "PR": "PRPOOS net (vertical, 0–210 m), ZooScan imaging"}
+              "PR": "PRPOOS net (vertical, 0–210 m), ZooScan imaging",
+              "CF": "CUFES: Continuous Underway Fish Egg Sampler (pumped, 3 m depth)"}
 
 # Per dataset: the stage list (key, menu label, noun for "with ..." / "no ...",
 # legend title, units), whether absences count as zero, and the source.
@@ -76,6 +77,15 @@ DATASETS = {
                    {"key": "all", "label": "All stages", "noun": "krill", "title": "Krill (all stages)", "units": "per m²"}],
         "zeros": True,
         "source": "CCE-LTER euphausiid abundance (CalCOFI.io cce-lter_euphausiids)",
+    },
+    "cufes": {
+        "label": "CUFES eggs",
+        "title": "CUFES fish and squid eggs (underway samples along the ship's track)",
+        "taxonWord": "species",
+        "stages": [{"key": "egg", "label": "Eggs", "noun": "eggs", "title": "Eggs", "units": "per m³"}],
+        "zeros": True,
+        "track": True,
+        "source": "SWFSC CUFES (CalCOFI.io swfsc_cufes), egg concentration",
     },
     "zooscan": {
         "label": "ZooScan",
@@ -202,12 +212,15 @@ def build(key, spec, tows, vals, out_dir, labels=None, order=None):
                      "start": r.start, "end": r.end, "ships": r.ships,
                      "cruises": [{"key": c, "ship": None if pd.isna(ship.get(c)) else ship.get(c)} for c in r.cruises]}
                     for p, r in info.reindex(periods).iterrows()],
-        "stations": [{"key": r.site_key, "line": r.line, "station": r.station, "lat": round(r.lat, 4), "lon": round(r.lon, 4)}
+        # track samples have no line or station
+        "stations": [{"key": r.site_key, "line": None if pd.isna(r.line) else r.line,
+                      "station": None if pd.isna(r.station) else r.station, "lat": round(r.lat, 4), "lon": round(r.lon, 4)}
                      for r in stations.itertuples()],
         "nets": [{"code": n, "label": NET_LABELS.get(n, n), "units": ""} for n in nets],
         "samplings": SAMPLINGS,
         "stages": stage_keys,
         "stageInfo": spec["stages"],
+        **({"track": True} if spec.get("track") else {}),
         "lines": [],
     }
     occ_keys = ["period", "sampling", "net_type", "site_key"]
@@ -283,6 +296,14 @@ def main():
     # ZooScan: class x measurement
     zt = q("zooscan_tows.parquet").assign(net_type="PR")
     zv = q("zooscan_values.parquet").assign(stage=lambda d: d.measurement)
+    # CUFES: each underway sample its own point ("station"), keyed by position
+    ct = q("cufes_samples.parquet").assign(net_type="CF", line=np.nan, station=np.nan)
+    ct["site_key"] = ct.lat.round(4).astype(str) + "," + ct.lon.round(4).astype(str)
+    cv = q("cufes_values.parquet").assign(stage="egg")
+    cv["common_name"] = cv.taxon_key.map({"worms:293496": "Other fish eggs"}).fillna(cv.common_name)
+    build("cufes", DATASETS["cufes"], ct, cv, args.out_dir,
+          order=["worms:272286", "worms:217452", "worms:273305", "worms:272458", "worms:574540", "worms:293496"])
+
     zg = group_values(zv, ZOOSCAN_GROUPS, stages=["zooscan_abundance", "zooscan_biomass_carbon"])
     build("zooscan", DATASETS["zooscan"], zt, pd.concat([zv, zg], ignore_index=True), args.out_dir, labels=ZOOSCAN_LABELS,
           order=[g["key"] for g in ZOOSCAN_GROUPS] + list(ZOOSCAN_LABELS))

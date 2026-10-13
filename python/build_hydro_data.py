@@ -61,6 +61,7 @@ VARIABLES = {
     # and an anomaly is a log ratio to normal; the atlas shows ug/L (or the ratio).
     # 0-200 m: bottle chlorophyll stops at 200 m, the CTD fluorometer reads ~0 below.
     "chlorophyll": {"label": "Chlorophyll a", "units": "µg L⁻¹", "column": "chl", "decimals": 3, "log": True, "maxDepth": 200},
+    "phaeopigment": {"label": "Phaeopigment", "units": "µg L⁻¹", "column": "phae", "decimals": 3, "log": True, "maxDepth": 200},
 }
 CHL_FLOOR = 0.01                       # ug/L, below the detection limit; keeps log10 finite
 # Derived variables (the companion repo's build_derived_variables.py), shown in
@@ -80,6 +81,9 @@ DERIVED_CAST_VARIABLES = {
     # CalCOFI's chlorophyll a integrated over 0-200 m: log10 mg m-2, as chlorophyll (see VARIABLES)
     "chl_integrated": {"label": "Integrated chlorophyll a, 0–200 m", "units": "mg m⁻²", "column": "chli", "decimals": 3,
                        "sources": ["ctd"], "log": True},
+    # 14C primary production integrated over the light-level bottles (bottle casts, 1984-2020): log10 mg C m-2 per half light-day
+    "pp_integrated": {"label": "Primary production (¹⁴C), integrated", "units": "mg C m⁻² per half light-day", "column": "pp",
+                      "decimals": 3, "sources": ["bottle"], "log": True, "maxGapKm": 140},     # ~15 stations per cruise
     # CalCOFI's 0/500 dbar dynamic height (Water masses view, "Circulation")
     "dyn_height": {"label": "Dynamic height, 0/500 dbar", "units": "dyn m", "column": "dh", "decimals": 3, "group": "dynamic"},
 }
@@ -98,7 +102,7 @@ DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES, **FRACTION_VARIABLES}
 SECTION_LINES = [90.0, 80.0]
 SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "nitrate": "no3", "silicate": "sio3",
                    "n2": "n2", "dynamic_height": "dh", "wm_psa": "psa", "wm_pew": "pew", "wm_npcw": "npcw",
-                   "chlorophyll": "chl"}      # log10 ug/L, as the maps
+                   "chlorophyll": "chl", "phaeopigment": "phae"}      # log10 ug/L, as the maps
 # Water masses view: properties on two isopycnals, from CTD casts only
 # (the companion repo's build_isopycnal_properties.py), written to
 # ctd/iso<surface>.json.
@@ -120,7 +124,8 @@ def dump(obj, path):
 def build_source(key, path, label, out_dir, src_dir):
     con = duckdb.connect()
     df = con.sql(f"SELECT * FROM '{path}' WHERE site_key IS NOT NULL").df()
-    df["chlorophyll"] = np.log10(df["chlorophyll"].clip(lower=CHL_FLOOR))      # see VARIABLES
+    for v in ("chlorophyll", "phaeopigment"):
+        df[v] = np.log10(df[v].clip(lower=CHL_FLOOR))                        # see VARIABLES
     derived = os.path.join(src_dir, "CalCOFI_derived", f"calcofi_{key}_derived_{{}}.parquet")
     dd = con.sql(f"SELECT \"cast\", depth_m, spiciness, n2 FROM '{derived.format('depths')}'").df()
     df = df.merge(dd, on=["cast", "depth_m"], how="left")
@@ -242,7 +247,8 @@ def main():
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "derived",
                    **({"interval": True} if v.get("interval") else {})} for k, v in DERIVED_DEPTH_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": v.get("group", "derived"), "perCast": True,
-                   **({"sources": v["sources"]} if "sources" in v else {}), **({"log": True} if v.get("log") else {})}
+                   **({"sources": v["sources"]} if "sources" in v else {}), **({"log": True} if v.get("log") else {}),
+                   **({"maxGapKm": v["maxGapKm"]} if "maxGapKm" in v else {})}
                for k, v in DERIVED_CAST_VARIABLES.items()},
             **{k: {"label": v["label"], "units": v["units"], "column": v["column"], "group": "isopycnal",
                    "style": v["style"], "sources": ["ctd"]} for k, v in ISOPYCNAL_VARIABLES.items()},

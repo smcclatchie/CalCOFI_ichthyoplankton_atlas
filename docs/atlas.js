@@ -60,7 +60,9 @@ let taxonCache = new Map();    // taxon id -> Map(key -> abundance), for the dat
 // (docs/data/zoo/<key>/, build_zooplankton_data.py) in the same layout, with
 // its own stages ("stageInfo": krill life stages, ZooScan measurements, ...),
 // shown with the same machinery in the Zooplankton view and the overlay.
-const DATASETS = { ichthyo: "Ichthyoplankton", krill: "Krill", zooscan: "ZooScan", volume: "Plankton volume" };
+const DATASETS = { ichthyo: "Ichthyoplankton", krill: "Krill", zooscan: "ZooScan", volume: "Plankton volume", cufes: "CUFES" };
+// Track datasets (CUFES): samples along the ship's track, each its own point, with no line or station.
+const isTrack = () => Boolean(meta.track);
 let dataset = "ichthyo";
 let lastZoo = "krill";                     // the Zooplankton button opens the last one used
 const datasetCache = new Map();            // key -> {meta, occ, taxa, cache}
@@ -80,7 +82,8 @@ const $ = (id) => document.getElementById(id);
 // ---------------------------------------------------------------- data --
 
 // Unique key for (survey month, sampling, net, stage, station), sized by the dataset's lists.
-const catchKey = (p, s, n, g, st) => ((((p * meta.samplings.length + s) * meta.nets.length + n) * meta.stages.length + g) * 8192) + st;
+const catchKey = (p, s, n, g, st) => ((((p * meta.samplings.length + s) * meta.nets.length + n) * meta.stages.length + g)
+  * Math.max(8192, meta.stations.length)) + st;
 
 async function getJSON(path) {
   const response = await fetch(DATA + path);
@@ -146,11 +149,21 @@ function fillDatasetControls() {
   fillSelect($("sampling-select"), meta.samplings.map(titleCase), Math.min(state.sampling, meta.samplings.length - 1));
   fillSelect($("net-select"), meta.nets.map((n) => n.label), Math.min(state.net, meta.nets.length - 1));
   $("dataset-select").value = dataset;
-  $("species-label").textContent = { ichthyo: "Species", krill: "Species", zooscan: "Zooplankton class", volume: "Measure" }[dataset];
-  $("stage-label").textContent = dataset === "ichthyo" || dataset === "krill" ? "Life stage" : "Measurement";
+  $("species-label").textContent = { ichthyo: "Species", krill: "Species", zooscan: "Zooplankton class", volume: "Measure", cufes: "Species" }[dataset];
+  $("stage-label").textContent = dataset === "ichthyo" || dataset === "krill" || dataset === "cufes" ? "Life stage" : "Measurement";
+  trackSymbols();
   $("net-hint").textContent = dataset === "ichthyo" || dataset === "volume"
     ? "Values from different nets are not comparable, so one net is shown at a time." : meta.nets[0].label;
   setupSpeciesSelect();
+}
+
+// Track samples sit a few km apart along the ship's track: smaller symbols (60%).
+function trackSymbols() {
+  if (!mapReady) return;
+  const f = isTrack() ? 0.6 : 1;
+  map.setPaintProperty("catch", "circle-radius", ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius * f]), ZERO.radius * f]);
+  map.setPaintProperty("zero", "circle-radius", ZERO.radius * f);
+  symbolStyle(state.layer === "hydro");
 }
 
 function indexOccupations() {
@@ -275,6 +288,7 @@ const titleCase = (s) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()
 
 function stationName(st) {
   const s = meta.stations[st];
+  if (s.line === null) return `Underway sample, ${s.lat.toFixed(3)}°N ${(-s.lon).toFixed(3)}°W`;
   return `Line ${s.line.toFixed(1)}, station ${s.station.toFixed(1)}`;
 }
 
@@ -446,12 +460,12 @@ function render() {
     const p = available[state.periodPos];
     const ships = available.length ? meta.periods[p].ships.map(titleCase).join(", ") : "";
     $("period-label").textContent = available.length
-      ? `${periodText(p)} · ${ships}\n${sampled} stations sampled, ${withCatch} with ${stageWord()}`
+      ? `${periodText(p)} · ${ships}\n${sampled} ${isTrack() ? "underway samples" : "stations sampled"}, ${withCatch} with ${stageWord()}`
       : "No surveys with this net and sampling type.";
   } else {
     const months = seasonPeriods();
     $("period-label").textContent = months.length
-      ? `${seasonText()}\n${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · ${sampled} stations, ${withCatch} with ${stageWord()}`
+      ? `${seasonText()}\n${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · ${sampled} ${isTrack() ? "underway samples" : "stations"}, ${withCatch} with ${stageWord()}`
       : `No ${state.season === "sequence" ? "" : `${state.season} `}surveys with this net and sampling type.`;
   }
   renderMapLabel();
@@ -505,7 +519,7 @@ function renderLineLabels(fc) {
   for (const m of lineMarkers) m.remove();
   lineMarkers = [];
   lastLabelled = null;
-  if (meta.samplings[state.sampling] !== "standard") return;
+  if (meta.samplings[state.sampling] !== "standard" || isTrack()) return;       // track samples: no lines
   if (!lineAxes) lineAxes = computeLineAxes(meta.stations);
   if (!stationAxes) stationAxes = computeLineAxes(meta.stations, "station");
   placeLineLabels(ghost ? ghost.stations : fc.features.map((f) => meta.stations[f.properties.st]), lineAxes, stationAxes);
@@ -646,7 +660,7 @@ function showMapMessage(text, detail = "") {
 
 // "No CB-net tows (standard sampling) in this season".
 function noTowText() {
-  const what = dataset === "ichthyo" || dataset === "volume" ? `${meta.nets[state.net].code}-net` : dataset === "krill" ? "krill" : "ZooScan";
+  const what = dataset === "ichthyo" || dataset === "volume" ? `${meta.nets[state.net].code}-net` : dataset === "krill" ? "krill" : DATASETS[dataset];
   return `No ${what} tows (${meta.samplings[state.sampling]} sampling) in this ${state.mode === "season" ? "season" : "month"}`;
 }
 
@@ -1101,11 +1115,11 @@ function updateLayerControls() {
   document.querySelector(".subtitle").textContent = hydro && hView() === "watermass"
     ? "Water masses: Pacific Subarctic, Pacific Equatorial and North Pacific Central water fractions (OMP), and properties on the σθ 25.8 and 26.4 surfaces"
     : hydro && hstate.derived && !hstate.anomaly
-    ? "Derived variables from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts: isopycnal, nitricline, chlorophyll-maximum and mixed layer depths, spiciness, N²"
+    ? "Derived variables from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts: isopycnal, nitricline, chlorophyll-maximum and mixed layer depths, spiciness, N², integrated chlorophyll and primary production"
     : hydro && hstate.anomaly
     ? "Hydrographic anomalies from each station's climatology, CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : hydro
-    ? "Temperature, salinity, density, oxygen, nutrients and chlorophyll from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
+    ? "Temperature, salinity, density, oxygen, nutrients, chlorophyll and phaeopigment from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : dataset !== "ichthyo"
     ? `${meta.title}, CalCOFI cruises, ${meta.periods[0].year}–${meta.periods[meta.periods.length - 1].year}`
     : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
@@ -1674,7 +1688,7 @@ function downloadLines() {
   // Lines sampled with the current net and sampling type, numerically.
   const lines = new Set();
   for (let i = 0; i < occ.p.length; i++) {
-    if (occ.s[i] === state.sampling && occ.n[i] === state.net) lines.add(meta.stations[occ.st[i]].line);
+    if (occ.s[i] === state.sampling && occ.n[i] === state.net && meta.stations[occ.st[i]].line !== null) lines.add(meta.stations[occ.st[i]].line);
   }
   return [...lines].sort((a, b) => a - b);
 }
@@ -1875,10 +1889,11 @@ function readHash() {
 // hydrography's colours) inside a thin white ring, so the abundance colours
 // stand out on any palette, dark or light.
 function symbolStyle(overHydro) {
-  const disc = overHydro ? 1.8 : 1.3;
+  const f = meta?.track ? 0.6 : 1;                 // track samples: smaller (trackSymbols)
+  const disc = (overHydro ? 1.8 : 1.3) * (f < 1 ? 0.7 : 1);
   map.setPaintProperty("catch", "circle-stroke-color", DISC);
   map.setPaintProperty("catch", "circle-stroke-width", disc);
-  map.setPaintProperty("catch-ring", "circle-radius", ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius + disc]), ZERO.radius]);
+  map.setPaintProperty("catch-ring", "circle-radius", ["match", ["get", "cls"], ...CLASSES.flatMap((c, i) => [i, c.radius * f + disc]), ZERO.radius]);
 }
 
 // ---------------------------------------------------------------- logo --
@@ -2129,6 +2144,7 @@ function createMap() {
     map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; popup.remove(); });
     map.on("click", layer, (e) => {
       if (state.layer === "hydro") return;   // the overlay: station charts are the hydrography's
+      if (isTrack()) return;                 // a track sample has no time series
       state.station = e.features[0].properties.st;
       dl.line = null;          // the line list follows the newly chosen station
       renderStationChart();
@@ -2157,6 +2173,7 @@ async function init() {
   updateLayerControls();
   $("season-select").value = state.season;
   await createMap();
+  trackSymbols();
 
   const start = fromHash.taxon || defaultTaxon();
   if (!fromHash.taxon) {

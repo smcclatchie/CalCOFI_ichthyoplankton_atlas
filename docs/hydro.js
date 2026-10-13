@@ -31,6 +31,9 @@
 
 const HYDRO = "data/hydro/";
 const MAX_GAP_KM = 70;
+// Sparse variables sampled at a coarser pattern (14C productivity, ~15
+// stations per cruise about twice the usual spacing) carry their own distance.
+const maxGap = () => hVar()?.maxGapKm ?? MAX_GAP_KM;
 const GRID_MARGIN_DEG = 1.0;       // > MAX_GAP_KM, so the grid's edges are always masked
 const GRID_MAX_CELLS = 230;        // along the longer side
 const MASK_COLOR = "#f3f6f9";      // the map's ocean colour
@@ -67,6 +70,14 @@ const HYDRO_STYLES = {
   // logLevels / fmtLog).
   chl_integrated: {   // as chlorophyll: colorcet blue-green-yellow, log scale
     stops: ["#000c7d", "#0019a1", "#002cba", "#0046b8", "#005fa4", "#007789", "#1c8f62", "#30a52f", "#33bb1a", "#36d219", "#73e31b", "#c3ed1e", "#fff123"],
+    smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
+  },
+  phaeopigment: {  // cmocean turbid, 0.12-1 (degraded pigment: tan to dark brown), log scale
+    stops: ["#d9d380", "#d0be68", "#c8a954", "#be9546", "#b3843f", "#a4733b", "#94653a", "#815839", "#6f4c36", "#5b4132", "#47362b", "#342a24", "#221f1b"],
+    smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
+  },
+  pp_integrated: { // colorcet linear_bmy_10_95_c78 (blue to yellow through magenta), log scale
+    stops: ["#000c7d", "#00149e", "#3414a9", "#7e0896", "#a9008b", "#cf0081", "#f11a75", "#ff4566", "#ff7253", "#ff9a38", "#ffb922", "#ffd61c", "#fff123"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
   },
   chlorophyll: {   // colorcet linear_bgy_10_95_c74 (blue = clear water, green, yellow = bloom)
@@ -132,6 +143,8 @@ const ANOMALY_STYLES = {
   sigma_theta: ["#1f5f70", "#2f7f8f", "#4f9fae", "#79bccb", "#a6d4de", "#d2e8ec", "#f2f1ef", "#ddd0ea", "#bfa3d6", "#9a72bf", "#7642a5", "#5c2a7f", "#4f1440"],
   oxygen: ["#281a2c", "#342846", "#3d3564", "#414583", "#5d70a5", "#a3b0cf", "#f1f1ee", "#b8e3c8", "#8fd3aa", "#71caa3", "#51a5a2", "#3f8f8a", "#2f6f6a"],
   // Chlorophyll (and integrated chlorophyll): a log ratio to normal; below normal brown, above green.
+  phaeopigment: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
+  pp_integrated: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   chl_integrated: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   chlorophyll: ["#543005", "#7a4a12", "#9c6a2a", "#bf8f4f", "#dcbd8a", "#efe2c6", "#f3f2ee", "#cfe8d2", "#9fd3a6", "#63b56f", "#2f9447", "#11722f", "#00441b"],
   nitrate: ["#13837b", "#29937f", "#4ea183", "#7fb898", "#aecdb4", "#d8e4d6", "#f3f1ec", "#f6c9a0", "#f18f63", "#e05e53", "#bf365b", "#921f63", "#5f185a"],
@@ -451,8 +464,9 @@ function convexHull(pts) {
 function computeField(points) {
   // points: [{lon, lat, v}] -> grid {lon0, y0 (Mercator), step, nx, ny, z, inside}
   const lons = points.map((q) => q.lon), lats = points.map((q) => q.lat);
-  const lonMin = Math.min(...lons) - GRID_MARGIN_DEG, lonMax = Math.max(...lons) + GRID_MARGIN_DEG;
-  const latMin = Math.min(...lats) - GRID_MARGIN_DEG, latMax = Math.max(...lats) + GRID_MARGIN_DEG;
+  const margin = Math.max(GRID_MARGIN_DEG, (maxGap() / 111) * 1.4);     // always beyond the mask distance
+  const lonMin = Math.min(...lons) - margin, lonMax = Math.max(...lons) + margin;
+  const latMin = Math.min(...lats) - margin, latMax = Math.max(...lats) + margin;
   // Columns even in longitude, rows even in Web Mercator y (same units), so
   // grid cells are square on screen and the fill image needs no warping.
   const y0 = mercatorY(latMin), y1 = mercatorY(latMax);
@@ -500,7 +514,7 @@ function computeField(points) {
     for (let i = 0; i < nx; i++) {
       const k = j * nx + i;
       z[k] = wsum[k] > 0 ? vsum[k] / wsum[k] : NaN;
-      cover[k] = Math.max(-1000, Math.min(MAX_GAP_KM - Math.sqrt(dmin[k]), hullDistance((lonMin + i * step) * kx, rowLat[j] * ky)));
+      cover[k] = Math.max(-1000, Math.min(maxGap() - Math.sqrt(dmin[k]), hullDistance((lonMin + i * step) * kx, rowLat[j] * ky)));
       const ok = cover[k] >= 0;
       inside[k] = ok ? 1 : 0;
       if (ok && Number.isFinite(z[k])) { zMin = Math.min(zMin, z[k]); zMax = Math.max(zMax, z[k]); }
@@ -527,7 +541,7 @@ function fieldAt(f, lon, lat) {
 // values (0.1, 0.2, 0.5, 1 ...), or for anomalies (log ratios to normal) at
 // ratios (/2, /1.5, x1, x1.5, x2 ...), each covering [lo, hi]; the step is
 // the smallest gap (used only for rounding).
-const LOG_VALUES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].map(Math.log10);
+const LOG_VALUES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].map(Math.log10);
 const LOG_RATIOS = [1.5, 2, 3, 5, 10, 20, 50, 100].map(Math.log10);
 const isLog = () => Boolean(hVar()?.log);
 function logLevels(lo, hi, anomaly) {
@@ -707,7 +721,7 @@ function fieldImage(f, scale) {
     const row = (f.ny - 1 - j) * f.nx;
     for (let i = 0; i < f.nx; i++) {
       const k = j * f.nx + i, o = (row + i) * 4;
-      if (f.cover[k] < -2 * MAX_GAP_KM) continue;    // far outside; the vector mask clips the rest
+      if (f.cover[k] < -2 * maxGap()) continue;    // far outside; the vector mask clips the rest
       const c = scale.colorAt(f.z[k]);
       img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
     }
@@ -915,7 +929,8 @@ async function renderHydro() {
   map.getSource("stations").setData(fc);
   // Casts without a tow (in the overlay): an open "no tow" ring.
   const towed = new Set(fc.features.map((f) => meta.stations[f.properties.st].key));
-  setNoTow(showFish ? points.filter((q) => !towed.has(stations[q.st].key)).map((q) => [q.lon, q.lat]) : []);
+  // (track samples are not at stations: rings only when there are none at all)
+  setNoTow(showFish && (!meta.track || !fc.features.length) ? points.filter((q) => !towed.has(stations[q.st].key)).map((q) => [q.lon, q.lat]) : []);
   for (const id of ["zero", "catch-ring", "catch"]) map.setLayoutProperty(id, "visibility", showFish ? "visible" : "none");
   symbolStyle(true);
   map.getSource("selected").setData(empty);
