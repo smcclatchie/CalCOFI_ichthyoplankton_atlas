@@ -62,14 +62,15 @@ const HYDRO_STYLES = {
     stops: ["#c9d4bf", "#aec7aa", "#91ba98", "#71ae8b", "#4ea183", "#29937f", "#13837b", "#137275", "#19616c", "#1c5062", "#1c4058", "#192f4d", "#151d44"],
     smooth: true, line: "#ffffff", lineWidth: 0.9, land: "#000000",
   },
-  // Chlorophyll a: cmocean algae (user, 2026-10-14), on a log scale (the values
-  // are log10 ug/L; see logLevels / fmtLog).
-  chl_integrated: {   // as chlorophyll: cmocean algae, log scale
-    stops: ["#b1dea5", "#99cf8c", "#7ec175", "#61b361", "#3da654", "#189750", "#07864d", "#0e7548", "#156540", "#195437", "#1a442c", "#173420", "#122414"],
+  // Chlorophyll a: colorcet blue-green-yellow (user, 2026-10-14; cmocean algae
+  // lost the detail), on a log scale (the values are log10 ug/L; see
+  // logLevels / fmtLog).
+  chl_integrated: {   // as chlorophyll: colorcet blue-green-yellow, log scale
+    stops: ["#000c7d", "#0019a1", "#002cba", "#0046b8", "#005fa4", "#007789", "#1c8f62", "#30a52f", "#33bb1a", "#36d219", "#73e31b", "#c3ed1e", "#fff123"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
   },
-  chlorophyll: {   // cmocean algae, 0.12-1 (its near-white end trimmed so white contours read)
-    stops: ["#b1dea5", "#99cf8c", "#7ec175", "#61b361", "#3da654", "#189750", "#07864d", "#0e7548", "#156540", "#195437", "#1a442c", "#173420", "#122414"],
+  chlorophyll: {   // colorcet linear_bgy_10_95_c74 (blue = clear water, green, yellow = bloom)
+    stops: ["#000c7d", "#0019a1", "#002cba", "#0046b8", "#005fa4", "#007789", "#1c8f62", "#30a52f", "#33bb1a", "#36d219", "#73e31b", "#c3ed1e", "#fff123"],
     smooth: true, line: "#ffffff", lineWidth: 0.7, land: "#000000",
   },
   // Derived variables. Depths run light (shallow) to dark (deep); the mixed
@@ -855,6 +856,7 @@ function setHydroVisible(on) {
 // --------------------------------------------------------------- render --
 
 async function renderHydro() {
+  showMapMessage("");          // the empty-season message is the ichthyoplankton/zooplankton views' only
   if (!mapReady) return;
   const token = ++hLoadToken;
   if (!hmeta || !hcache.has(hKey())) {

@@ -138,6 +138,13 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   pointer-events: none;
 }
 .map-label:empty { display: none; }
+/* An empty season (no tows): a prominent message over the open ocean, top left (clear of the stations and the label). */
+.map-message { position: absolute; z-index: 3; top: 16px; left: 16px; max-width: min(380px, calc(100% - 40px));
+  padding: 14px 20px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15); text-align: center; pointer-events: none; }
+.map-message[hidden] { display: none; }
+.map-message strong { display: block; font-size: 17px; color: var(--text-primary); }
+.map-message span { display: block; margin-top: 4px; font-size: 13px; color: var(--text-secondary); }
 /* CalCOFI logo: a brand label kept on land (see placeLogo in atlas.js). */
 .brand-logo { position: absolute; z-index: 2; width: 108px; height: 108px; pointer-events: none; border-radius: 4px; }
 .brand-logo[hidden] { display: none; }

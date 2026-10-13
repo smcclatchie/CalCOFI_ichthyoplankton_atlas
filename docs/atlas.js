@@ -448,6 +448,7 @@ function render() {
   }
   renderMapLabel();
   renderLegend();
+  showMapMessage(ghost ? `${noTowText()}` : "", ghost ? `${ghost.when} · open circles: stations with hydrographic casts` : "");
   updateDownloadPanel();
   renderHighCounts();
   if (state.station !== null) renderStationChart();
@@ -585,9 +586,9 @@ function renderMapLabel() {
   const what = `<span class="species">${speciesHTML(t)}</span>` +
     `${stageLabel()} · ${net.label} · ${titleCase(meta.samplings[state.sampling])} sampling`;
   if (ghost) {
+    // An empty season: no colour key (nothing is coloured); the message on the map says why.
     $("map-label").innerHTML = `<span class="when">${ghost.when}</span>${noTowText()}: ${ghost.stations.length} ${ghost.word} stations ` +
-      `with casts are shown as open circles.<br>${what}` +
-      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}`;
+      `with casts are shown as open circles.<br>${what}`;
     return;
   }
   if (state.mode === "month") {
@@ -625,6 +626,16 @@ function seasonGhost() {
     when: seasonText(step), stations: c.stations, word: c.word };
 }
 
+// A prominent message in the middle of the map (an empty season), or none.
+function showMapMessage(text, detail = "") {
+  const el = $("map-message");
+  el.hidden = !text;
+  el.innerHTML = text ? `<strong>${text}</strong>${detail ? `<span>${detail}</span>` : ""}` : "";
+  // Beside the distribution panels when they are open (they sit top left too).
+  const lp = $("left-panels").getBoundingClientRect(), area = document.querySelector(".map-area").getBoundingClientRect();
+  el.style.left = `${lp.width > 0 ? lp.right - area.left + 12 : 16}px`;
+}
+
 // "No CB-net tows (standard sampling) in this season".
 function noTowText() {
   const what = dataset === "ichthyo" || dataset === "volume" ? `${meta.nets[state.net].code}-net` : dataset === "krill" ? "krill" : "ZooScan";
@@ -642,6 +653,11 @@ function setNoTow(stations) {
 
 function renderLegend() {
   $("legend-title").textContent = valueTitle();
+  if (ghost && state.layer !== "hydro") {
+    $("legend-items").innerHTML = "";
+    $("scale-note").textContent = `${noTowText()}, so there is nothing to colour.`;
+    return;
+  }
   $("legend-items").innerHTML = colourBar(280);
   setToggle("scale-toggle", state.scaleMode);
   const top = scaleBreaks[scaleBreaks.length - 1].toLocaleString();
