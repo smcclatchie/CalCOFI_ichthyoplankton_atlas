@@ -180,23 +180,40 @@ function trackSymbols() {
   symbolStyle(state.layer === "hydro");
 }
 
+// Partial surveys (build_atlas_data.py): occupations with occ.c[i] >= 0
+// report only the taxa in meta.partial[c]; for any other taxon they count as
+// unsampled, not as zero catches.
+let partialTaxa = [], partialPeriods = new Map();   // period -> meta.partial index
 function indexOccupations() {
   occByPeriod = new Map();
+  partialTaxa = (meta.partial || []).map((x) => new Set(x.taxa));
+  partialPeriods = new Map();
   for (let i = 0; i < occ.p.length; i++) {
     if (!occByPeriod.has(occ.p[i])) occByPeriod.set(occ.p[i], []);
     occByPeriod.get(occ.p[i]).push(i);
+    if (occ.c && occ.c[i] >= 0) partialPeriods.set(occ.p[i], occ.c[i]);
   }
 }
 
+// An occupation counts for the chosen net, sampling and taxon.
+const occUsed = (i) => occ.s[i] === state.sampling && occ.n[i] === state.net &&
+  (!occ.c || occ.c[i] < 0 || !state.taxon || partialTaxa[occ.c[i]].has(state.taxon.id));
+
 function occupationRows(p) {
-  return (occByPeriod.get(p) || []).filter((i) => occ.s[i] === state.sampling && occ.n[i] === state.net);
+  return (occByPeriod.get(p) || []).filter(occUsed);
+}
+
+// The note for survey months shown that report only some taxa ("" if none).
+function partialNote(periods) {
+  const labels = [...new Set(periods.filter((p) => partialPeriods.has(p)).map((p) => meta.partial[partialPeriods.get(p)].label))];
+  return labels.length ? `<span class="map-note">${labels.join("; ")}.</span>` : "";
 }
 
 function updateAvailable() {
   ghost = null;
   const set = new Set();
   for (let i = 0; i < occ.p.length; i++) {
-    if (occ.s[i] === state.sampling && occ.n[i] === state.net) set.add(occ.p[i]);
+    if (occUsed(i)) set.add(occ.p[i]);
   }
   available = [...set].sort((a, b) => a - b);
 }
@@ -638,14 +655,14 @@ function renderMapLabel() {
     const cruises = period.cruises.map((c) => `${c.key}${c.ship ? ` (${titleCase(c.ship)})` : ""}`).join(", ");
     $("map-label").innerHTML = `<span class="when">${periodText(available[state.periodPos])}</span>` +
       `Cruise${period.cruises.length > 1 ? "s" : ""} ${cruises}<br>${what}` +
-      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}`;
+      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}` + partialNote([available[state.periodPos]]);
   } else {
     const months = seasonPeriods();
     if (!months.length) { $("map-label").innerHTML = ""; return; }
     const cruises = [...new Set(months.flatMap((p) => meta.periods[p].cruises.map((c) => c.key)))].join(", ");
     $("map-label").innerHTML = `<span class="when">${seasonText()}</span>` +
       `${months.length > 1 ? "Survey months" : "Survey month"} ${months.map(periodText).join(", ")} · cruise${cruises.includes(",") ? "s" : ""} ${cruises}<br>${what}` +
-      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}` + multiNote();
+      `<span class="bar-title">${valueTitle()}</span>${colourBar(300)}` + multiNote() + partialNote(months);
   }
 }
 
@@ -812,10 +829,12 @@ function smoothSegments(points) {
 const ensemblePath = (segments, sx, sy) =>
   segments.map((g) => "M" + g.map(([x, v]) => `${sx(x).toFixed(1)},${sy(v).toFixed(1)}`).join("L")).join("");
 // The median across all stations at each survey time (stations sharing a
-// survey share its x), as one series.
+// survey share its x), as one series; surveys of only a few stations
+// (meta.partial, e.g. the line 90 supplement) are left out.
 function ensembleMedian(all) {
   const byX = new Map();
-  for (const pts of all.values()) for (const [x, v] of pts) {
+  for (const pts of all.values()) for (const [x, v, partial] of pts) {
+    if (partial) continue;                    // a survey of a few stations only (meta.partial)
     const k = Math.round(x * 1200);
     if (!byX.has(k)) byX.set(k, { x, vals: [] });
     byX.get(k).vals.push(v);
@@ -853,12 +872,12 @@ function allStationSeries() {
     for (const i of occupationRows(p)) {
       const st = occ.st[i], a = values.get(catchKey(p, state.sampling, state.net, state.stage, st)) || 0;
       if (!acc.has(st)) acc.set(st, new Map());
-      const r = acc.get(st).get(x) || { sum: 0, n: 0 };
-      r.sum += a; r.n += 1; acc.get(st).set(x, r);
+      const r = acc.get(st).get(x) || { sum: 0, n: 0, partial: false };
+      r.sum += a; r.n += 1; r.partial ||= partialPeriods.has(p); acc.get(st).set(x, r);
     }
   }
   const all = new Map();
-  for (const [st, byX] of acc) all.set(st, [...byX].map(([x, r]) => [x, Math.log10(1 + r.sum / r.n)]).sort((a, b) => a[0] - b[0]));
+  for (const [st, byX] of acc) all.set(st, [...byX].map(([x, r]) => [x, Math.log10(1 + r.sum / r.n), r.partial]).sort((a, b) => a[0] - b[0]));
   ensembleCache = { key, all };
   return all;
 }
@@ -882,7 +901,7 @@ function renderStationChart(st = state.station) {
   const all = allStationSeries();
   const ensTop = quantileOf([...all.values()].flatMap((pts) => pts.map((q) => q[1])), 0.995);
   const yMax = Math.max(1, Math.ceil(Math.max(0, ensTop || 0, ...series.map((d) => y(d.a)))));
-  const x0 = 1950, x1 = 2024;
+  const x0 = 1950, x1 = meta.periods[meta.periods.length - 1].year + 1;
   const sx = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r);
   const sy = (v) => H - m.b - (v / yMax) * (H - m.t - m.b);
 
@@ -895,7 +914,7 @@ function renderStationChart(st = state.station) {
     parts.push(`<line x1="${m.l}" x2="${W - m.r}" y1="${yy}" y2="${yy}" stroke="#ecebe6"/>`);
     parts.push(`<text x="${m.l - 6}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#85837c">${v.toLocaleString()}</text>`);
   }
-  for (let yr = 1950; yr <= 2020; yr += 10) {
+  for (let yr = 1950; yr <= x1; yr += 10) {
     parts.push(`<text x="${sx(yr)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#85837c">${yr}</text>`);
   }
   if (state.mode === "month" && available.length) {
@@ -1234,7 +1253,7 @@ function updateLayerControls() {
     ? "Temperature, salinity, density, oxygen, nutrients, carbonate system, chlorophyll and phaeopigment from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts"
     : dataset !== "ichthyo"
     ? `${meta.title}, CalCOFI cruises, ${meta.periods[0].year}–${meta.periods[meta.periods.length - 1].year}`
-    : "Fish eggs and larvae from CalCOFI plankton tows, 1951–2023";
+    : `Fish eggs and larvae from CalCOFI plankton tows, ${meta.periods[0].year}–${meta.periods[meta.periods.length - 1].year}`;
 }
 
 function updateStepTitle() {
@@ -1398,7 +1417,7 @@ function highCountData() {
     }
   }
   let samples = 0;
-  for (let i = 0; i < occ.p.length; i++) if (occ.s[i] === state.sampling && occ.n[i] === state.net) samples++;
+  for (let i = 0; i < occ.p.length; i++) if (occUsed(i)) samples++;
   return { counts, samples };
 }
 
@@ -1646,7 +1665,7 @@ function renderHighCruises(high) {
   const sampled = new Map();   // cell key -> stations sampled
   if (byMonth) {
     for (let i = 0; i < occ.p.length; i++) {
-      if (occ.s[i] === state.sampling && occ.n[i] === state.net) sampled.set(occ.p[i], (sampled.get(occ.p[i]) || 0) + 1);
+      if (occUsed(i)) sampled.set(occ.p[i], (sampled.get(occ.p[i]) || 0) + 1);
     }
   } else {
     for (const c of cells) sampled.set(c.key, new Set(seasonPeriods(seasonSteps.find((st) => stepKey(st) === c.key)).flatMap((p) => occupationRows(p).map((i) => occ.st[i]))).size);
@@ -1884,7 +1903,8 @@ async function runDownload() {
     : new Set(meta.stations.map((s, i) => (s.line === dl.line ? i : -1)).filter((i) => i >= 0));
   const rows = [];
   for (let i = 0; i < occ.p.length; i++) {
-    if (occ.s[i] === state.sampling && occ.n[i] === state.net && stations.has(occ.st[i])) rows.push(i);
+    // One species: its samples (partial surveys only where they report it); all species: every sample.
+    if ((dl.species === "one" ? occUsed(i) : occ.s[i] === state.sampling && occ.n[i] === state.net) && stations.has(occ.st[i])) rows.push(i);
   }
   const station = meta.stations[state.station];
   rows.sort((a, b) => occ.p[a] - occ.p[b] || meta.stations[occ.st[a]].station - meta.stations[occ.st[b]].station);

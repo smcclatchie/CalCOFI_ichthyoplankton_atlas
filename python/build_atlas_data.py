@@ -21,6 +21,14 @@ selection and standardisation rule; this script only reshapes its output:
                               for the atlas's all-species CSV downloads
   docs/data/land.geojson      Natural Earth 1:50m land, clipped to the region
 
+Partial surveys (2026-10-16): the line 90 spring counts newer than the
+CalCOFI.io release (that repository's build_line90_supplement.py, from a
+pre-release line 90 file) are added as ordinary survey months, but they
+report only some taxa. Their occupations carry c = the index of a
+meta.partial entry (else -1), which lists the taxon ids they report
+(combined entries only when every member is reported); for any other taxon
+the atlas treats those occupations as unsampled, not as zero catches.
+
 The atlas steps by *survey month* (year-month): cruises by different ships
 in the same month are one survey. Where a station was occupied more than
 once in a month with the same net and sampling type, abundance is the mean
@@ -51,6 +59,9 @@ DEFAULT_SRC = os.path.join(os.path.dirname(REPO_DIR), "CalCOFI_digital_atlas", "
 DEFAULT_OUT = os.path.join(REPO_DIR, "docs", "data")
 CATCH_NAME = "calcofi_ichthyo_stations_catch.parquet"
 TOWS_NAME = "calcofi_ichthyo_stations_tows.parquet"
+DEFAULT_SUPPLEMENT = os.path.join(os.path.dirname(REPO_DIR), "CalCOFI_digital_atlas", "data",
+                                  "CalCOFI_ichthyoplankton", "line90_supplement")
+SUPPLEMENT_LABEL = "Line 90 only, pre-release counts (not yet in CalCOFI.io)"
 NET_ORDER = ["C1", "CB", "CV", "PV", "MT"]               # oblique, vertical, then surface
 SAMPLINGS = ["standard", "special survey"]
 STAGES = ["egg", "larva"]
@@ -111,12 +122,29 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--src-dir", default=DEFAULT_SRC, help="directory holding the station GeoParquet tables")
     ap.add_argument("--out-dir", default=DEFAULT_OUT)
+    ap.add_argument("--supplement-dir", default=DEFAULT_SUPPLEMENT,
+                    help="line 90 supplement tables (skipped when absent)")
     args = ap.parse_args()
 
     con = duckdb.connect()
     con.sql("LOAD spatial;")
     catch = con.sql(f"SELECT * EXCLUDE geometry FROM '{os.path.join(args.src_dir, CATCH_NAME)}'").df()
     tows = con.sql(f"SELECT * EXCLUDE geometry FROM '{os.path.join(args.src_dir, TOWS_NAME)}'").df()
+    sup_tows = os.path.join(args.supplement_dir, "line90_supplement_tows.parquet")
+    partial_taxa = None
+    if os.path.exists(sup_tows):
+        s_tows = con.sql(f"SELECT * FROM '{sup_tows}'").df()
+        s_catch = con.sql(f"SELECT * FROM '{os.path.join(args.supplement_dir, 'line90_supplement_catch.parquet')}'").df()
+        partial_taxa = set(pd.read_csv(os.path.join(args.supplement_dir, "line90_supplement_taxa.csv")).taxon_key)
+        overlap = set(s_tows.cruise_key.str[:7]) & set(tows.cruise_key.str[:7])
+        if overlap:
+            raise SystemExit(f"supplement survey months already in the CalCOFI.io tables: {sorted(overlap)}")
+        s_tows["partial"] = True
+        tows = pd.concat([tows.assign(partial=False), s_tows], ignore_index=True)
+        catch = pd.concat([catch, s_catch], ignore_index=True)
+        print(f"supplement: {len(s_tows)} tows, {len(s_catch)} catches, {len(partial_taxa)} taxa reported")
+    else:
+        tows["partial"] = False
 
     # ---- lookup lists ----
     for df in (catch, tows):
@@ -148,7 +176,9 @@ def main():
                   "https://github.com/smcclatchie/CalCOFI_digital_atlas",
         "generated": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d"),
         "periods": [{"key": p, "year": int(p[:4]), "month": int(p[5:7]), "season": SEASONS[int(p[5:7])],
-                     "start": r.start, "end": r.end, "ships": r.ships,
+                     # no tow dates in the line 90 supplement: null
+                     "start": r.start if isinstance(r.start, str) else None,
+                     "end": r.end if isinstance(r.end, str) else None, "ships": r.ships,
                      "cruises": [{"key": c, "ship": None if pd.isna(cruise_ship[c]) else cruise_ship[c]}
                                  for c in r.cruises]}
                     for p, r in period_info.iterrows()],
@@ -164,7 +194,7 @@ def main():
 
     # ---- occupations per survey month (tows summed across ships in the month) ----
     occ_keys = ["period", "sampling", "net_type", "site_key"]
-    occ = tows.groupby(occ_keys).n_tows.sum().reset_index()
+    occ = tows.groupby(occ_keys).agg(n_tows=("n_tows", "sum"), partial=("partial", "any")).reset_index()
     occupations = {
         "p": occ.period.map(index["period"]).tolist(),
         "s": occ.sampling.map(index["sampling"]).tolist(),
@@ -172,6 +202,9 @@ def main():
         "st": occ.site_key.map(index["station"]).tolist(),
         "t": occ.n_tows.tolist(),
     }
+    if partial_taxa is not None:
+        occupations["c"] = [0 if x else -1 for x in occ.partial]
+    occ = occ.drop(columns="partial")
 
     # ---- catches per survey month: tow-weighted mean, absences as zero ----
     catch["weighted"] = catch.abundance * catch.n_tows       # = summed density over the cruise's tows
@@ -245,6 +278,12 @@ def main():
         if key not in by_key:
             raise SystemExit(f"featured taxon not in the data: {key}")
         by_key[key]["featured"] = rank
+
+    # ---- partial surveys: the taxa they report (combined entries if every member is) ----
+    if partial_taxa is not None:
+        reported = [t["id"] for t in taxa if (t["key"] in partial_taxa if not t.get("group")
+                    else all(m in partial_taxa for m in next(g for g in GROUPS if g["key"] == t["key"])["members"]))]
+        meta["partial"] = [{"label": SUPPLEMENT_LABEL, "taxa": reported}]
 
     # ---- per-line files: all taxa on one CalCOFI line, for CSV downloads ----
     taxon_id = {t["key"]: t["id"] for t in taxa if not t.get("group")}
