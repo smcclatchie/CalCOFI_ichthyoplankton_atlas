@@ -308,6 +308,9 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .station-panel header .chart-toggle button + button { border-left: 1px solid var(--border); }
 .station-panel header .chart-toggle button[aria-checked="true"] { background: var(--accent); color: #fff; }
 .station-panel h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.station-panel header .ens-smooth { flex: none; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
+.station-panel header .ens-smooth select { font-size: 12px; padding: 2px 4px; }
+.station-panel header .chart-toggle[hidden] + .ens-smooth { margin-left: auto; }
 .station-panel header button {
   border: 0;
   background: none;

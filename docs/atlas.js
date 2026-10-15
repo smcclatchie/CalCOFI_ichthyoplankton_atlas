@@ -781,9 +781,12 @@ function stationSeries(st) {
 // st: the station (ichthyoplankton index); the hydrography views pass theirs.
 // Station ensemble (2026-10-15, user's test, as for model-ensemble time
 // series): every station's series as a thin grey line, the selected one red,
-// each smoothed by a Gaussian-weighted running mean (ENSEMBLE_SIGMA_YR) and
-// broken across gaps longer than ENSEMBLE_GAP_YR; the bubbles stay raw.
-const ENSEMBLE_SIGMA_YR = 1.0, ENSEMBLE_GAP_YR = 3;
+// each smoothed by a Gaussian-weighted running mean (sigma ensembleSigma,
+// years: the Smoothing menu, None / 3 months / 1 year / 3 years) and broken
+// across gaps longer than ENSEMBLE_GAP_YR; the bubbles stay raw.
+let ensembleSigma = 0.25;               // default 3 months
+const ENSEMBLE_SIGMA_CHOICES = [0, 0.25, 1, 3];
+const ENSEMBLE_GAP_YR = 3;
 // points [[x (decimal year), y]] sorted by x -> smoothed segments
 function smoothSegments(points) {
   const segs = [];
@@ -793,7 +796,8 @@ function smoothSegments(points) {
     seg.push(q);
   });
   if (seg.length > 1) segs.push(seg);
-  const s2 = 2 * ENSEMBLE_SIGMA_YR ** 2, reach = 3 * ENSEMBLE_SIGMA_YR;
+  if (!ensembleSigma) return segs;                    // None: the points joined as they are
+  const s2 = 2 * ensembleSigma ** 2, reach = 3 * ensembleSigma;
   return segs.map((g) => g.map(([x]) => {
     let w = 0, v = 0;
     for (const [x2, y2] of g) {
@@ -1257,6 +1261,12 @@ function togglePlay() {
 }
 
 function setupControls() {
+  $("ens-smooth").value = String(ensembleSigma);
+  $("ens-smooth").addEventListener("change", (e) => {
+    ensembleSigma = Number(e.target.value);
+    if (state.layer === "hydro") renderHydroChart(); else if (state.station !== null) renderStationChart();
+    writeHash();
+  });
   $("bathy-toggle").checked = bathyOn;
   $("bathy-toggle").addEventListener("change", (e) => { bathyOn = e.target.checked; setBathyVisible(); writeHash(); });
   fillDatasetControls();      // with the link's stage, sampling and net
@@ -1932,6 +1942,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
+  if (ensembleSigma !== 0.25) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
   // The view goes in the query string, not the fragment: LinkedIn (and other
@@ -1961,6 +1972,7 @@ function readHash() {
   if (params.get("view") === "season") state.mode = "season";
   if (params.get("scale") === "fixed") state.scaleMode = "fixed";
   if (params.get("bathy") === "0") bathyOn = false;
+  if (ENSEMBLE_SIGMA_CHOICES.includes(Number(params.get("smooth"))) && params.has("smooth")) ensembleSigma = Number(params.get("smooth"));
   if (params.get("dist") === "1") highOpen = true;
   if (SEASON_LABEL[params.get("season")] || params.get("season") === "sequence") state.season = params.get("season");
   const year = Number(params.get("year"));
