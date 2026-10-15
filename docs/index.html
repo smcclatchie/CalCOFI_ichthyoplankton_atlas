@@ -310,12 +310,13 @@
             <button type="button" role="radio" data-value="larvae" aria-checked="true">Larvae</button>
             <button type="button" role="radio" data-value="hydro" aria-checked="false">Hydrography</button>
           </div>
+          <span class="ens-key" aria-hidden="true"><i class="own"></i>this station <i class="med"></i>median of all stations</span>
           <label class="ens-smooth">Smoothing
             <select id="ens-smooth" aria-label="Smoothing of the station lines">
               <option value="0">None</option>
-              <option value="0.25">3 months</option>
               <option value="1">1 year</option>
-              <option value="3">3 years</option>
+              <option value="2">2 years</option>
+              <option value="4">4 years</option>
             </select>
           </label>
           <button type="button" id="station-close" aria-label="Close station chart">✕</button>

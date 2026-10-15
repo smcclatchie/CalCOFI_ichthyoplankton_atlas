@@ -780,12 +780,13 @@ function stationSeries(st) {
 
 // st: the station (ichthyoplankton index); the hydrography views pass theirs.
 // Station ensemble (2026-10-15, user's test, as for model-ensemble time
-// series): every station's series as a thin grey line, the selected one red,
-// each smoothed by a Gaussian-weighted running mean (sigma ensembleSigma,
-// years: the Smoothing menu, None / 3 months / 1 year / 3 years) and broken
-// across gaps longer than ENSEMBLE_GAP_YR; the bubbles stay raw.
-let ensembleSigma = 0.25;               // default 3 months
-const ENSEMBLE_SIGMA_CHOICES = [0, 0.25, 1, 3];
+// series): every station's series as a thin grey line, the median of all
+// stations as a dark line, the selected one red, each smoothed by a
+// Gaussian-weighted running mean (sigma ensembleSigma, years: the Smoothing
+// menu, None / 1 / 2 / 4 years) and broken across gaps longer than
+// ENSEMBLE_GAP_YR; the bubbles stay raw.
+let ensembleSigma = 1;                  // default 1 year
+const ENSEMBLE_SIGMA_CHOICES = [0, 1, 2, 4];
 const ENSEMBLE_GAP_YR = 3;
 // points [[x (decimal year), y]] sorted by x -> smoothed segments
 function smoothSegments(points) {
@@ -811,13 +812,30 @@ function smoothSegments(points) {
 }
 const ensemblePath = (segments, sx, sy) =>
   segments.map((g) => "M" + g.map(([x, v]) => `${sx(x).toFixed(1)},${sy(v).toFixed(1)}`).join("L")).join("");
-// Grey ensemble lines (every station but the selected), the selected red line, as SVG, clipped to the plot.
+// The median across all stations at each survey time (stations sharing a
+// survey share its x), as one series.
+function ensembleMedian(all) {
+  const byX = new Map();
+  for (const pts of all.values()) for (const [x, v] of pts) {
+    const k = Math.round(x * 1200);
+    if (!byX.has(k)) byX.set(k, { x, vals: [] });
+    byX.get(k).vals.push(v);
+  }
+  return [...byX.values()].sort((a, b) => a.x - b.x).map(({ x, vals }) => {
+    vals.sort((a, b) => a - b);
+    const n = vals.length, h = n >> 1;
+    return [x, n % 2 ? vals[h] : (vals[h - 1] + vals[h]) / 2];
+  });
+}
+// Grey ensemble lines (every station but the selected), the dark median of all
+// stations, the selected red line, as SVG, clipped to the plot (key: #ens-key).
 function ensembleSVG(all, st, sx, sy, clip) {
   const grey = [];
   for (const [k, pts] of all) if (k !== st && pts.length > 1) grey.push(ensemblePath(smoothSegments(pts), sx, sy));
-  const own = all.get(st);
+  const own = all.get(st), med = ensembleMedian(all);
   return `<defs><clipPath id="ens-clip"><rect x="${clip.x}" y="${clip.y}" width="${clip.w}" height="${clip.h}"/></clipPath></defs>` +
     `<g clip-path="url(#ens-clip)" fill="none"><path d="${grey.join("")}" stroke="#8a8880" stroke-opacity="0.28" stroke-width="0.6"/>` +
+    (med.length > 1 ? `<path d="${ensemblePath(smoothSegments(med), sx, sy)}" stroke="#2b2a27" stroke-width="1.6"/>` : "") +
     (own && own.length > 1 ? `<path d="${ensemblePath(smoothSegments(own), sx, sy)}" stroke="#d62728" stroke-width="1.3"/>` : "") + "</g>";
 }
 const quantileOf = (vals, q) => { const s2 = vals.slice().sort((a, b) => a - b); return s2.length ? s2[Math.min(s2.length - 1, Math.floor(q * s2.length))] : NaN; };
@@ -1942,7 +1960,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
-  if (ensembleSigma !== 0.25) params.set("smooth", String(ensembleSigma));
+  if (ensembleSigma !== 1) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
   // The view goes in the query string, not the fragment: LinkedIn (and other
