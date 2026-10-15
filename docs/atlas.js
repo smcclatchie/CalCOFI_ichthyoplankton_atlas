@@ -783,10 +783,10 @@ function stationSeries(st) {
 // series): every station's series as a thin grey line, the median of all
 // stations as a dark line, the selected one red, each smoothed by a
 // Gaussian-weighted running mean (sigma ensembleSigma, years: the Smoothing
-// menu, 1 / 2 / 4 years) and broken across gaps longer than
+// menu's 1 / 2 / 4 years is the width, sigma half of it) and broken across gaps longer than
 // ENSEMBLE_GAP_YR; the bubbles stay raw.
-let ensembleSigma = 1;                  // default 1 year
-const ENSEMBLE_SIGMA_CHOICES = [1, 2, 4];
+let ensembleSigma = 0.5;                // default 1 year
+const ENSEMBLE_SIGMA_CHOICES = [0.5, 1, 2];
 const ENSEMBLE_GAP_YR = 3;
 // points [[x (decimal year), y]] sorted by x -> smoothed segments
 function smoothSegments(points) {
@@ -1962,7 +1962,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
-  if (ensembleSigma !== 1) params.set("smooth", String(ensembleSigma));
+  if (ensembleSigma !== 0.5) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
   // The view goes in the query string, not the fragment: LinkedIn (and other
