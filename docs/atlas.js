@@ -783,10 +783,10 @@ function stationSeries(st) {
 // series): every station's series as a thin grey line, the median of all
 // stations as a dark line, the selected one red, each smoothed by a
 // Gaussian-weighted running mean (sigma ensembleSigma, years: the Smoothing
-// menu, None / 1 / 2 / 4 years) and broken across gaps longer than
+// menu, 1 / 2 / 4 years) and broken across gaps longer than
 // ENSEMBLE_GAP_YR; the bubbles stay raw.
 let ensembleSigma = 1;                  // default 1 year
-const ENSEMBLE_SIGMA_CHOICES = [0, 1, 2, 4];
+const ENSEMBLE_SIGMA_CHOICES = [1, 2, 4];
 const ENSEMBLE_GAP_YR = 3;
 // points [[x (decimal year), y]] sorted by x -> smoothed segments
 function smoothSegments(points) {
@@ -797,7 +797,6 @@ function smoothSegments(points) {
     seg.push(q);
   });
   if (seg.length > 1) segs.push(seg);
-  if (!ensembleSigma) return segs;                    // None: the points joined as they are
   const s2 = 2 * ensembleSigma ** 2, reach = 3 * ensembleSigma;
   return segs.map((g) => g.map(([x]) => {
     let w = 0, v = 0;
@@ -925,14 +924,23 @@ function renderStationChart(st = state.station) {
   tip.hidden = true;
   box.appendChild(tip);
   const svg = box.querySelector("svg");
+  // Only the bubbles answer the pointer: the one under it (its radius + 3 px), the smallest on top.
+  const radiusOf = (d) => { const cls = classOf(d.a); return cls < 0 ? 2 : 0.75 * CLASSES[cls].radius; };
+  const bubbleAt = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const px = ((event.clientX - rect.left) / rect.width) * W, py = ((event.clientY - rect.top) / rect.height) * H;
+    let best = null, bestR = Infinity;
+    for (const d of series) {
+      const r = radiusOf(d), dist = Math.hypot(sx(d.x) - px, sy(y(d.a)) - py);
+      if (dist <= r + 3 && r < bestR) { best = d; bestR = r; }
+    }
+    return best;
+  };
   svg.addEventListener("mousemove", (event) => {
     const rect = svg.getBoundingClientRect();
-    const px = ((event.clientX - rect.left) / rect.width) * W;
-    let best = null;
-    for (const d of series) {
-      if (!best || Math.abs(sx(d.x) - px) < Math.abs(sx(best.x) - px)) best = d;
-    }
-    if (!best || Math.abs(sx(best.x) - px) > 12) { tip.hidden = true; return; }
+    const best = bubbleAt(event);
+    svg.style.cursor = best ? "pointer" : "";
+    if (!best) { tip.hidden = true; return; }
     tip.hidden = false;
     const value = best.a > 0 ? `${fmt(best.a)} ${unitsLabel()}` : `no ${stageWord()} caught`;
     const tows = `${best.tows} tow${best.tows > 1 ? "s" : ""}`;
@@ -944,16 +952,10 @@ function renderStationChart(st = state.station) {
     tip.style.top = `${(sy(y(best.a)) / H) * rect.height - 30}px`;
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
-  // Clicking a point shows that survey month (or season) on the map.
-  svg.style.cursor = "pointer";
+  // Clicking a bubble shows that survey month (or season) on the map.
   svg.addEventListener("click", (event) => {
-    const rect = svg.getBoundingClientRect();
-    const px = ((event.clientX - rect.left) / rect.width) * W;
-    let best = null;
-    for (const d of series) {
-      if (!best || Math.abs(sx(d.x) - px) < Math.abs(sx(best.x) - px)) best = d;
-    }
-    if (!best || Math.abs(sx(best.x) - px) > 12) return;
+    const best = bubbleAt(event);
+    if (!best) return;
     stopPlay();
     ghost = null;
     if (best.step) {

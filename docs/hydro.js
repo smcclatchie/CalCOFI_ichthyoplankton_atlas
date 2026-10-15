@@ -1315,15 +1315,17 @@ function renderHydroChart() {
   tip.hidden = true;
   box.appendChild(tip);
   const svg = box.querySelector("svg");
+  // Only the bubbles answer the pointer (radius 3 + 3 px).
   const nearest = (event) => {
     const rect = svg.getBoundingClientRect();
-    const px = ((event.clientX - rect.left) / rect.width) * W;
-    let best = null;
-    for (const d of series) if (!best || Math.abs(sx(d.x) - px) < Math.abs(sx(best.x) - px)) best = d;
-    return best && Math.abs(sx(best.x) - px) <= 12 ? best : null;
+    const px = ((event.clientX - rect.left) / rect.width) * W, py = ((event.clientY - rect.top) / rect.height) * H;
+    let best = null, bestD = 6;
+    for (const d of series) { const dist = Math.hypot(sx(d.x) - px, sy(d.v) - py); if (dist <= bestD) { best = d; bestD = dist; } }
+    return best;
   };
   svg.addEventListener("mousemove", (event) => {
     const d = nearest(event);
+    svg.style.cursor = d ? "pointer" : "";
     if (!d) { tip.hidden = true; return; }
     tip.hidden = false;
     tip.textContent = d.step
@@ -1334,7 +1336,6 @@ function renderHydroChart() {
     tip.style.top = `${(sy(d.v) / H) * rect.height - 30}px`;
   });
   svg.addEventListener("mouseleave", () => { tip.hidden = true; });
-  svg.style.cursor = "pointer";
   svg.addEventListener("click", (event) => {
     const d = nearest(event);
     if (!d) return;
