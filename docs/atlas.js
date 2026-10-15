@@ -779,6 +779,69 @@ function stationSeries(st) {
 }
 
 // st: the station (ichthyoplankton index); the hydrography views pass theirs.
+// Station ensemble (2026-10-15, user's test, as for model-ensemble time
+// series): every station's series as a thin grey line, the selected one red,
+// each smoothed by a Gaussian-weighted running mean (ENSEMBLE_SIGMA_YR) and
+// broken across gaps longer than ENSEMBLE_GAP_YR; the bubbles stay raw.
+const ENSEMBLE_SIGMA_YR = 1.0, ENSEMBLE_GAP_YR = 3;
+// points [[x (decimal year), y]] sorted by x -> smoothed segments
+function smoothSegments(points) {
+  const segs = [];
+  let seg = [];
+  points.forEach((q, i) => {
+    if (i && q[0] - points[i - 1][0] > ENSEMBLE_GAP_YR) { if (seg.length > 1) segs.push(seg); seg = []; }
+    seg.push(q);
+  });
+  if (seg.length > 1) segs.push(seg);
+  const s2 = 2 * ENSEMBLE_SIGMA_YR ** 2, reach = 3 * ENSEMBLE_SIGMA_YR;
+  return segs.map((g) => g.map(([x]) => {
+    let w = 0, v = 0;
+    for (const [x2, y2] of g) {
+      const d = x2 - x;
+      if (Math.abs(d) > reach) continue;
+      const k = Math.exp(-(d * d) / s2);
+      w += k; v += k * y2;
+    }
+    return [x, v / w];
+  }));
+}
+const ensemblePath = (segments, sx, sy) =>
+  segments.map((g) => "M" + g.map(([x, v]) => `${sx(x).toFixed(1)},${sy(v).toFixed(1)}`).join("L")).join("");
+// Grey ensemble lines (every station but the selected), the selected red line, as SVG, clipped to the plot.
+function ensembleSVG(all, st, sx, sy, clip) {
+  const grey = [];
+  for (const [k, pts] of all) if (k !== st && pts.length > 1) grey.push(ensemblePath(smoothSegments(pts), sx, sy));
+  const own = all.get(st);
+  return `<defs><clipPath id="ens-clip"><rect x="${clip.x}" y="${clip.y}" width="${clip.w}" height="${clip.h}"/></clipPath></defs>` +
+    `<g clip-path="url(#ens-clip)" fill="none"><path d="${grey.join("")}" stroke="#8a8880" stroke-opacity="0.28" stroke-width="0.6"/>` +
+    (own && own.length > 1 ? `<path d="${ensemblePath(smoothSegments(own), sx, sy)}" stroke="#d62728" stroke-width="1.3"/>` : "") + "</g>";
+}
+const quantileOf = (vals, q) => { const s2 = vals.slice().sort((a, b) => a - b); return s2.length ? s2[Math.min(s2.length - 1, Math.floor(q * s2.length))] : NaN; };
+
+// Every station's series at once (as stationSeries, one pass): station -> [[x, log10(1 + a)]].
+let ensembleCache = { key: null, all: null };
+function allStationSeries() {
+  const key = [state.taxon.id, dataset, state.net, state.stage, state.sampling, state.mode, state.season].join("|");
+  if (ensembleCache.key === key) return ensembleCache.all;
+  const values = taxonCache.get(state.taxon.id), acc = new Map();
+  for (const p of available) {
+    const period = meta.periods[p];
+    if (state.mode === "season" && !seasonMatches(period.season)) continue;
+    const year = seasonYear(period);
+    const x = state.mode === "season" ? seasonStart(period.season, year) + 1.5 / 12 : period.year + (period.month - 0.5) / 12;
+    for (const i of occupationRows(p)) {
+      const st = occ.st[i], a = values.get(catchKey(p, state.sampling, state.net, state.stage, st)) || 0;
+      if (!acc.has(st)) acc.set(st, new Map());
+      const r = acc.get(st).get(x) || { sum: 0, n: 0 };
+      r.sum += a; r.n += 1; acc.get(st).set(x, r);
+    }
+  }
+  const all = new Map();
+  for (const [st, byX] of acc) all.set(st, [...byX].map(([x, r]) => [x, Math.log10(1 + r.sum / r.n)]).sort((a, b) => a[0] - b[0]));
+  ensembleCache = { key, all };
+  return all;
+}
+
 function renderStationChart(st = state.station) {
   if (state.layer !== "hydro") $("chart-toggle").hidden = true;
   const series = stationSeries(st);
@@ -795,7 +858,9 @@ function renderStationChart(st = state.station) {
   const H = box.clientHeight || 180;
   const m = { l: 52, r: 12, t: 10, b: 24 };
   const y = (a) => Math.log10(1 + a);
-  const yMax = Math.max(1, Math.ceil(Math.max(0, ...series.map((d) => y(d.a)))));
+  const all = allStationSeries();
+  const ensTop = quantileOf([...all.values()].flatMap((pts) => pts.map((q) => q[1])), 0.995);
+  const yMax = Math.max(1, Math.ceil(Math.max(0, ensTop || 0, ...series.map((d) => y(d.a)))));
   const x0 = 1950, x1 = 2024;
   const sx = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r);
   const sy = (v) => H - m.b - (v / yMax) * (H - m.t - m.b);
@@ -823,6 +888,7 @@ function renderStationChart(st = state.station) {
     const xa = sx(start), w = Math.max(3, sx(start + 0.25) - xa);
     parts.push(`<rect x="${xa}" y="${m.t}" width="${w}" height="${H - m.t - m.b}" fill="#2a78d6" opacity="0.18"/>`);
   }
+  parts.push(ensembleSVG(all, st, sx, sy, { x: m.l, y: m.t, w: W - m.l - m.r, h: H - m.t - m.b }));
   // Colour and size as on the map (three-quarters scale), the smaller on top.
   for (const d of series.slice().sort((p, q) => q.a - p.a)) {
     const cls = classOf(d.a);

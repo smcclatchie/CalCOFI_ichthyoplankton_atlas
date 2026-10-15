@@ -1190,13 +1190,25 @@ function renderCompareControls() {
 
 // ---------------------------------------------------------- station chart --
 
+// Row indices of the data shown, by station (cached per file).
+const hRowsCache = new WeakMap();
+function hStationRows() {
+  const d = hData();
+  if (!hRowsCache.has(d)) {
+    const by = new Map();
+    for (let i = 0; i < d.p.length; i++) { if (!by.has(d.st[i])) by.set(d.st[i], []); by.get(d.st[i]).push(i); }
+    hRowsCache.set(d, by);
+  }
+  return hRowsCache.get(d);
+}
+
 function hydroSeries(st) {
   const d = hData(), col = hVar().column, periods = hSrc().periods;
   const rows = [];
   // Anomalies: each value minus the station's fitted cycle at its survey month.
   const clim = hstate.anomaly ? climatology() : null;
   const val = (i) => (clim ? anomalyOf(clim, st, d.p[i], d[col][i]) : d[col][i]);
-  for (let i = 0; i < d.p.length; i++) if (d.st[i] === st && d[col][i] !== null && val(i) !== null) rows.push(i);
+  for (const i of hStationRows().get(st) || []) if (d[col][i] !== null && val(i) !== null) rows.push(i);
   const anom = (list) => list;
   if (state.mode === "month") {
     return anom(rows.map((i) => ({ p: d.p[i], x: periods[d.p[i]].year + (periods[d.p[i]].month - 0.5) / 12, v: val(i), casts: d.n[i], slot: periods[d.p[i]].month })));
@@ -1254,10 +1266,14 @@ function renderHydroChart() {
   const m = { l: 52, r: 12, t: 10, b: 24 };
   const parts = [];
   if (!series.length) { box.innerHTML = ""; return; }
-  const vs = series.map((d) => d.v);
+  // The station ensemble (atlas.js ensembleSVG): every station's series.
+  const all = new Map();
+  for (const k of hStationRows().keys()) { const ser = hydroSeries(k); if (ser.length) all.set(k, ser.map((q) => [q.x, q.v])); }
+  const ensVals = [...all.values()].flatMap((pts) => pts.map((q) => q[1]));
+  const lo = Math.min(...series.map((d) => d.v), quantileOf(ensVals, 0.01)), hi = Math.max(...series.map((d) => d.v), quantileOf(ensVals, 0.99));
   // Anomalies: a symmetric axis, labelled through zero.
-  const span = Math.max(...vs.map(Math.abs), 0.01);
-  const { levels, step } = hstate.anomaly ? levelsFor(-span, span) : levelsFor(Math.min(...vs), Math.max(...vs));
+  const span = Math.max(Math.abs(lo), Math.abs(hi), 0.01);
+  const { levels, step } = hstate.anomaly ? levelsFor(-span, span) : levelsFor(lo, hi);
   const y0 = levels[0], y1 = levels[levels.length - 1];
   const x0 = hSrc().years[0] - 1, x1 = hSrc().years[1] + 1;
   const sx = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r);
@@ -1290,7 +1306,7 @@ function renderHydroChart() {
     parts.push(`<rect x="${xa}" y="${m.t}" width="${Math.max(3, sx(seasonStart(season, year) + 0.25) - xa)}" height="${H - m.t - m.b}" fill="#2a78d6" opacity="0.18"/>`);
   }
   const color = (v) => (hLevels ? rgbText(hLevels.colorAt(v)) : "#5b5a55");
-  parts.push(`<polyline points="${series.map((d) => `${sx(d.x)},${sy(d.v)}`).join(" ")}" fill="none" stroke="#c9c7bf" stroke-width="0.8"/>`);
+  parts.push(ensembleSVG(all, st, sx, sy, { x: m.l, y: m.t, w: W - m.l - m.r, h: H - m.t - m.b }));
   for (const d of series) parts.push(`<circle cx="${sx(d.x)}" cy="${sy(d.v)}" r="3" fill="${color(d.v)}" stroke="${OUTLINE}" stroke-width="0.6"/>`);
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Values through time at this station">${parts.join("")}</svg>`;
 
