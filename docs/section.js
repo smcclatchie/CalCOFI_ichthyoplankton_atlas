@@ -21,10 +21,10 @@
 // joined linearly between neighbouring stations and standard depths, never
 // beyond the outermost stations or below a station's deepest value.
 //
-// Anomalies: each station and standard depth minus its climatology for the
-// calendar month or season, as on the map (the mean over all years, each
-// year's value the mean of its survey months; at least ANOMALY_MIN_YEARS
-// years, else left blank), over the whole record of the source shown.
+// Anomalies: each station and standard depth minus its harmonic seasonal
+// cycle, fitted as on the map (hydro.js fitHarmonic: annual + semi-annual
+// harmonics over the source's whole record, ANOMALY_MIN_YEARS years), at the
+// survey months shown; blank where a station has no cycle.
 //
 // Geostrophic velocity across the line, relative to 500 dbar, between
 // neighbouring stations that both reach 500 m:
@@ -66,41 +66,37 @@ function sVar() {
     diverging: hstate.anomaly, log, maxDepth: hVar().maxDepth };
 }
 
-// Climatology along the line: "station|depth index|slot" -> mean, for one column.
+// Climatology along the line: "station|depth index" -> fitted cycle, for one column.
 const sClimCache = new Map();
 function sectionClimatology(d, col) {
-  const key = `${sKey()}/${col}/${state.mode}`;
+  const key = `${sKey()}/${col}`;
   if (sClimCache.has(key)) return sClimCache.get(key);
-  const periods = hSrc().periods, years = new Map();
+  const periods = hSrc().periods, obs = new Map();
   for (let i = 0; i < d.p.length; i++) {
     const v = d[col]?.[i];
     if (v === null || v === undefined) continue;
-    const x = periods[d.p[i]], k = `${d.st[i]}|${d.z[i]}|${climSlot(x)}`, y = climYear(x);
-    if (!years.has(k)) years.set(k, new Map());
-    const r = years.get(k).get(y) || { sum: 0, n: 0 };
-    r.sum += v;
-    r.n += 1;
-    years.get(k).set(y, r);
+    const x = periods[d.p[i]], k = `${d.st[i]}|${d.z[i]}`;
+    if (!obs.has(k)) obs.set(k, []);
+    obs.get(k).push([x.month, x.year, v]);
   }
   const clim = new Map();
-  for (const [k, byYear] of years) {
-    if (byYear.size < ANOMALY_MIN_YEARS) continue;
-    let sum = 0;
-    for (const r of byYear.values()) sum += r.sum / r.n;
-    clim.set(k, sum / byYear.size);
-  }
+  for (const [k, o] of obs) { const f = fitHarmonic(o); if (f) clim.set(k, f); }
   sClimCache.set(key, clim);
   return clim;
 }
 
-// Profiles as departures from the climatology of their calendar month or season.
-function sectionAnomalies(d, profiles, v, period) {
-  const clim = sectionClimatology(d, v.col), slot = climSlot(hSrc().periods[period]);
+// Profiles as departures from their fitted cycles, averaged over the survey
+// months shown (periods).
+function sectionAnomalies(d, profiles, v, periods) {
+  const clim = sectionClimatology(d, v.col);
+  const months = [...new Set(periods.map((p) => hSrc().periods[p].month))];
   for (const p of profiles) {
     if (!p[v.col]) continue;
     p[v.col] = p[v.col].map((val, k) => {
-      const c = clim.get(`${p.st}|${k}|${slot}`);
-      return val === null || c === undefined ? null : val - c;
+      const f = clim.get(`${p.st}|${k}`);
+      if (val === null || !f) return null;
+      const c = months.map((m) => f.at(m));
+      return c.some((x) => x === null) ? null : val - c.reduce((a, b) => a + b, 0) / c.length;
     });
   }
   return profiles;
@@ -224,7 +220,7 @@ function sectionRange(d, geo, v) {
   let lo = Infinity, hi = -Infinity, n = 0;
   for (const ps of groups.values()) {
     let profiles = sectionProfiles(d, ps, geo);
-    if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, ps[0]);
+    if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, ps);
     const vals = sectionValues(sectionColumns(profiles, v));
     if (vals.length) n++;
     for (const val of vals) { lo = Math.min(lo, val); hi = Math.max(hi, val); }
@@ -322,7 +318,7 @@ async function renderSection() {
   if (!v) { sCur = null; showSectionMessage(hView() === "watermass" ? "Sections show the water-mass fractions: choose PSA, PEW or NPCW." : `No section for ${hLabel().toLowerCase()}${hView() === "anomaly" ? ": sections show the variables at a depth (temperature, salinity, density, oxygen, nitrate, silicate, stability, water-mass fractions)" : ""}.`); return; }
   if (!geo) { sCur = null; showSectionMessage(`No ${hSourceWord()} stations on line ${sstate.line}.`); return; }
   let profiles = sectionProfiles(d, periods, geo);
-  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods[0]);
+  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods);
   const cols = sectionColumns(profiles, v);
   if (cols.length < 2) {
     sCur = null;
@@ -551,9 +547,9 @@ function sectionNote(scale, v) {
     const season = hstate.scale === "season" ? `, ${hShownSeason()}` : "";
     return `Fixed scale, ${range}${units}: it covers every value in the ${scale.maps} sections of ${hstate.compare.join("–")}${season}, ` +
       `so those sections share colours; ${contours}. Grey: no data (below the deepest sample).` +
-      (v.anomaly ? ` Anomalies from each station's mean for this ${state.mode === "month" ? "calendar month" : "season"} at each depth (${ANOMALY_MIN_YEARS}+ years).` : "");
+      (v.anomaly ? ` Anomalies from each station's harmonic seasonal cycle at each depth (${ANOMALY_MIN_YEARS}+ years).` : "");
   }
-  const clim = v.anomaly ? ` Anomalies from each station's mean for this ${state.mode === "month" ? "calendar month" : "season"} at each depth, ` +
+  const clim = v.anomaly ? ` Anomalies from each station's harmonic seasonal cycle (annual + semi-annual) at each depth, fitted to ` +
     `${hSrc().years[0]}–${hSrc().years[1]} (${ANOMALY_MIN_YEARS}+ years); grey also where there is no climatology.` : "";
   return `Scale fitted to this section, ${range}${units}${v.diverging ? (v.log ? ", symmetric about normal (×1)" : ", symmetric about zero") : ""}; ${contours}. Grey: no data (below the deepest sample)${v.maxDepth ? `; the section stops at ${v.maxDepth} m` : ""}.${clim}`;
 }

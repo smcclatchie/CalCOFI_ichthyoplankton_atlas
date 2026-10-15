@@ -201,7 +201,7 @@ const ANOMALY_STYLES = {
   wm_npcw: ["#7a3d8f", "#9558a8", "#b07cc0", "#c9a2d5", "#dfc6e6", "#efe3f2", "#f2f2ef", "#e4e3b0", "#c9ba45", "#8ea20b", "#498a16", "#0f6b2b", "#172313"],
 };
 const ANOMALY_LINE = "#1f1e1c";
-const ANOMALY_MIN_YEARS = 20;           // a station's climatology needs at least this many years (user, 2026-10-12)
+const ANOMALY_MIN_YEARS = 10;           // a station's harmonic climatology needs this many years of data (2026-10-15)
 const FILL_OPACITY_OVER_BLACK = 0.85;   // as the Fishing Maps fills
 const ICHTHYO_LAND = "#e8e6df";
 const LABEL_SPACING_PX = 320;           // contour labels: one per this much line
@@ -419,10 +419,17 @@ function hStationValues(periods) {
   const d = hData();
   const col = hVar().column;
   const acc = new Map();
+  const clim = hstate.anomaly && periods.length ? climatology() : null;
+  const dropped = new Set();
   for (const p of periods) {
     for (const i of d.byPeriod.get(p) || []) {
-      const v = d[col][i];
+      let v = d[col][i];
       if (v === null) continue;
+      if (clim) {
+        // Departure from the station's fitted seasonal cycle at this survey month.
+        v = anomalyOf(clim, d.st[i], p, v);
+        if (v === null) { dropped.add(d.st[i]); continue; }
+      }
       const r = acc.get(d.st[i]) || { sum: 0, months: 0, casts: 0 };
       r.sum += v;
       r.months += 1;
@@ -431,55 +438,99 @@ function hStationValues(periods) {
     }
   }
   for (const r of acc.values()) r.v = r.sum / r.months;
-  if (hstate.anomaly && periods.length) {
-    // Departure from each station's climatology for this calendar month or
-    // season; stations without one (< ANOMALY_MIN_YEARS years) are left out.
-    const clim = climatology(), slot = climSlot(hSrc().periods[periods[0]]);
-    hAnomalyDropped = 0;
-    for (const [st, r] of acc) {
-      const c = clim.get(`${st}|${slot}`);
-      if (c === undefined) { acc.delete(st); hAnomalyDropped++; } else r.v -= c.mean;
-    }
-  }
+  if (clim) hAnomalyDropped = [...dropped].filter((st) => !acc.has(st)).length;
   return acc;
 }
 
 // ------------------------------------------------------------ anomalies --
 //
-// Climatology: for each station, the mean over all years of its value for a
-// calendar month ("By month") or season ("By season": each year's value is the
-// mean of the season's survey months, as on the map), over the whole record of
-// the source shown -- the longest baseline the data allow. Only stations with
-// at least ANOMALY_MIN_YEARS years count.
+// Climatology (2026-10-15, per user, as in the CalCOFI literature): for each
+// station, a harmonic seasonal cycle fitted by least squares to every survey
+// month of its whole record in the source shown (each year-month's value
+// once):  c(m) = a0 + a1 cos wt + b1 sin wt + a2 cos 2wt + b2 sin 2wt,
+// wt = 2 pi (m - 0.5) / 12 -- an annual and a semi-annual cycle. Every month
+// of a station's record supports every season, so stations sampled in few
+// seasons or years still get a climatology. Fewer harmonics where the record
+// covers less of the year: annual only with 3-5 calendar months; with 1-2
+// months, those months' means. A station needs ANOMALY_MIN_YEARS years of
+// data, and the cycle is used only at or next to a calendar month the station
+// was sampled in (never extrapolated across unsampled seasons). Anomaly = a
+// value minus the cycle at its survey month; a season's anomaly is the mean of
+// its survey months' anomalies.
 let hAnomalyDropped = 0;       // stations on the map shown without a climatology
 const hClimCache = new Map();
 const climSlot = (x) => (state.mode === "month" ? x.month : SEASON_OF_MONTH[x.month]);
 const climYear = (x) => (state.mode === "month" ? x.year : x.year + (x.month === 12 ? 1 : 0));
 
+// obs: [[month 1-12, year, value], ...] -> {at(month) -> value or null, years, harmonics} or null.
+function fitHarmonic(obs) {
+  const ym = new Map();
+  for (const [m, y, v] of obs) {
+    const k = `${y}-${m}`, r = ym.get(k) || { m, y, sum: 0, n: 0 };
+    r.sum += v; r.n += 1; ym.set(k, r);
+  }
+  const pts = [...ym.values()].map((r) => [r.m, r.sum / r.n]);
+  const years = new Set([...ym.values()].map((r) => r.y)).size;
+  if (years < ANOMALY_MIN_YEARS) return null;
+  const months = new Set(pts.map((q) => q[0]));
+  const near = (m) => [0, 1, -1].some((d) => months.has(((m - 1 + d + 12) % 12) + 1));
+  const H = months.size >= 6 ? 2 : months.size >= 3 ? 1 : 0;
+  if (H === 0) {                                     // 1-2 calendar months: their own means
+    const mean = new Map();
+    for (const m of months) { const v = pts.filter((q) => q[0] === m).map((q) => q[1]); mean.set(m, v.reduce((a, b) => a + b, 0) / v.length); }
+    return { at: (m) => (mean.has(m) ? mean.get(m) : null), years, harmonics: 0 };
+  }
+  const basis = (m) => {
+    const w = (2 * Math.PI * (m - 0.5)) / 12, row = [1, Math.cos(w), Math.sin(w)];
+    if (H === 2) row.push(Math.cos(2 * w), Math.sin(2 * w));
+    return row;
+  };
+  const k = 1 + 2 * H;
+  if (pts.length < k + 3) return null;
+  const A = Array.from({ length: k }, () => new Array(k + 1).fill(0));     // normal equations [X'X | X'y]
+  for (const [m, v] of pts) {
+    const x = basis(m);
+    for (let i = 0; i < k; i++) { for (let j = 0; j < k; j++) A[i][j] += x[i] * x[j]; A[i][k] += x[i] * v; }
+  }
+  for (let c = 0; c < k; c++) {                      // Gaussian elimination, partial pivoting
+    let piv = c;
+    for (let r = c + 1; r < k; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    [A[c], A[piv]] = [A[piv], A[c]];
+    if (Math.abs(A[c][c]) < 1e-12) return null;
+    for (let r = 0; r < k; r++) {
+      if (r === c) continue;
+      const f = A[r][c] / A[c][c];
+      for (let j = c; j <= k; j++) A[r][j] -= f * A[c][j];
+    }
+  }
+  const coef = A.map((row, i) => row[k] / row[i]);
+  return { at: (m) => (near(m) ? basis(m).reduce((a, x, i) => a + x * coef[i], 0) : null), years, harmonics: H };
+}
+
+// station -> fitted cycle (or absent), for the variable, depth and source shown.
 function climatology() {
-  const key = `${hKey()}/${hstate.variable}/${state.mode}`;
+  const key = `${hKey()}/${hstate.variable}`;
   if (hClimCache.has(key)) return hClimCache.get(key);
   const d = hData(), col = hVar().column, periods = hSrc().periods;
-  const years = new Map();     // "st|slot" -> year -> {sum, n}
+  const obs = new Map();
   for (let i = 0; i < d.p.length; i++) {
     const v = d[col][i];
     if (v === null) continue;
-    const x = periods[d.p[i]], k = `${d.st[i]}|${climSlot(x)}`, y = climYear(x);
-    if (!years.has(k)) years.set(k, new Map());
-    const r = years.get(k).get(y) || { sum: 0, n: 0 };
-    r.sum += v;
-    r.n += 1;
-    years.get(k).set(y, r);
+    const x = periods[d.p[i]];
+    if (!obs.has(d.st[i])) obs.set(d.st[i], []);
+    obs.get(d.st[i]).push([x.month, x.year, v]);
   }
   const clim = new Map();
-  for (const [k, byYear] of years) {
-    if (byYear.size < ANOMALY_MIN_YEARS) continue;
-    let sum = 0;
-    for (const r of byYear.values()) sum += r.sum / r.n;
-    clim.set(k, { mean: sum / byYear.size, years: byYear.size });
-  }
+  for (const [st, o] of obs) { const f = fitHarmonic(o); if (f) clim.set(st, f); }
   hClimCache.set(key, clim);
   return clim;
+}
+
+// A value at station st in survey month (period index) p, as a departure from its cycle (or null).
+function anomalyOf(clim, st, p, v) {
+  const f = clim.get(st);
+  const c = f ? f.at(hSrc().periods[p].month) : null;
+  return c === null ? null : v - c;
 }
 
 // ----------------------------------------------------------------- field --
@@ -657,6 +708,7 @@ function compareRange() {
   const [y0, y1] = hstate.compare;
   const d = hData(), col = hVar().column, periods = hSrc().periods;
   const season = hstate.scale === "season" ? hShownSeason() : null;
+  const clim = hstate.anomaly ? climatology() : null;
   const acc = new Map();       // station x map -> {sum, n}
   for (let i = 0; i < d.p.length; i++) {
     const v = d[col][i];
@@ -664,20 +716,16 @@ function compareRange() {
     const x = periods[d.p[i]], yr = hStepYear(x), s = SEASON_OF_MONTH[x.month];
     if (yr < y0 || yr > y1 || (season && s !== season)) continue;
     const key = state.mode === "season" ? `${d.st[i]}|${yr}|${s}` : `${d.st[i]}|${d.p[i]}`;
-    const r = acc.get(key) || { sum: 0, n: 0, st: d.st[i], slot: climSlot(x) };
+    const r = acc.get(key) || { sum: 0, n: 0, st: d.st[i], slot: climSlot(x), bad: false };
+    if (clim) { const a = anomalyOf(clim, d.st[i], d.p[i], v); if (a === null) { r.bad = true; acc.set(key, r); continue; } r.sum += a; r.n += 1; acc.set(key, r); continue; }
     r.sum += v;
     r.n += 1;
     acc.set(key, r);
   }
   let lo = Infinity, hi = -Infinity, maps = new Set();
-  const clim = hstate.anomaly ? climatology() : null;
   for (const [key, r] of acc) {
-    let v = r.sum / r.n;
-    if (clim) {
-      const c = clim.get(`${r.st}|${r.slot}`);
-      if (c === undefined) continue;
-      v -= c.mean;
-    }
+    if (!r.n) continue;
+    const v = r.sum / r.n;
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
     maps.add(key.slice(key.indexOf("|") + 1));
@@ -1008,8 +1056,8 @@ let hydroPendingTime = null;
 // ANOMALY_MIN_YEARS years) are left out of an anomaly map; say how many.
 function anomalyNote() {
   if (!hstate.anomaly) return "";
-  const base = `Departures from each station's ${state.mode === "month" ? "calendar-month" : "seasonal"} mean, ` +
-    `${hSrc().years[0]}–${hSrc().years[1]} (stations with ${ANOMALY_MIN_YEARS}+ years)`;
+  const base = `Departures from each station's seasonal cycle (annual + semi-annual harmonics fitted to its ` +
+    `${hSrc().years[0]}–${hSrc().years[1]} record; stations with ${ANOMALY_MIN_YEARS}+ years)`;
   const left = hAnomalyDropped ? `; ${hAnomalyDropped} station${hAnomalyDropped > 1 ? "s" : ""} without one left out` : "";
   return `<span class="map-note">${base}${left}.</span>`;
 }
@@ -1108,7 +1156,7 @@ function renderHydroLegend() {
     : `contours every ${+hLevels.step.toFixed(3)}`;
   const season = hShownSeason();
   const clim = hstate.anomaly
-    ? ` Anomaly from each station's ${state.mode === "month" ? "calendar-month" : "seasonal"} mean over the whole ${hSourceWord()} record ` +
+    ? ` Anomaly from each station's seasonal cycle: annual and semi-annual harmonics fitted to its whole ${hSourceWord()} record ` +
       `(${hSrc().years[0]}–${hSrc().years[1]}), stations with at least ${ANOMALY_MIN_YEARS} years.`
     : "";
   if (hstate.scale === "floating") {
@@ -1145,15 +1193,13 @@ function renderCompareControls() {
 function hydroSeries(st) {
   const d = hData(), col = hVar().column, periods = hSrc().periods;
   const rows = [];
-  for (let i = 0; i < d.p.length; i++) if (d.st[i] === st && d[col][i] !== null) rows.push(i);
-  // Anomalies: each point minus the station's climatology for its month or season.
+  // Anomalies: each value minus the station's fitted cycle at its survey month.
   const clim = hstate.anomaly ? climatology() : null;
-  const anom = (list) => (clim ? list.flatMap((r) => {
-    const c = clim.get(`${st}|${r.slot}`);
-    return c === undefined ? [] : [{ ...r, v: r.v - c.mean }];
-  }) : list);
+  const val = (i) => (clim ? anomalyOf(clim, st, d.p[i], d[col][i]) : d[col][i]);
+  for (let i = 0; i < d.p.length; i++) if (d.st[i] === st && d[col][i] !== null && val(i) !== null) rows.push(i);
+  const anom = (list) => list;
   if (state.mode === "month") {
-    return anom(rows.map((i) => ({ p: d.p[i], x: periods[d.p[i]].year + (periods[d.p[i]].month - 0.5) / 12, v: d[col][i], casts: d.n[i], slot: periods[d.p[i]].month })));
+    return anom(rows.map((i) => ({ p: d.p[i], x: periods[d.p[i]].year + (periods[d.p[i]].month - 0.5) / 12, v: val(i), casts: d.n[i], slot: periods[d.p[i]].month })));
   }
   const by = new Map();
   for (const i of rows) {
@@ -1163,7 +1209,7 @@ function hydroSeries(st) {
     const step = { season, year: x.year + (x.month === 12 ? 1 : 0) };
     const k = `${step.year}-${season}`;
     const r = by.get(k) || { step, slot: season, x: seasonStart(season, step.year) + 1.5 / 12, sum: 0, months: 0, casts: 0 };
-    r.sum += d[col][i]; r.months += 1; r.casts += d.n[i];
+    r.sum += val(i); r.months += 1; r.casts += d.n[i];
     by.set(k, r);
   }
   return anom([...by.values()].map((r) => ({ ...r, v: r.sum / r.months }))).sort((a, b) => a.x - b.x);
