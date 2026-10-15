@@ -374,6 +374,12 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .ternary-panel { position: absolute; z-index: 4; inset: 12px 12px 12px 12px; display: flex; flex-direction: column;
   padding: 8px 12px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 4px 18px rgba(0,0,0,0.15); }
 .ternary-panel[hidden] { display: none; }
+/* EDA view (2026-10-16): its analysis covers the map area; the map's own controls step aside. */
+.eda-mode .controls > .control:not(.eda-keep) { display: none; }
+.eda-mode .controls > .control.eda-only { display: block; }
+.eda-mode .ternary-panel { z-index: 30; inset: 0; border-radius: 0; box-shadow: none; }
+.eda-mode .controls label:has(#bathy-toggle) { display: none; }
+#eda-toggle button { white-space: normal; text-align: left; }
 .ternary-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .ternary-panel h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .ternary-panel header button { border: 0; background: none; font-size: 16px; cursor: pointer; color: var(--text-secondary); }

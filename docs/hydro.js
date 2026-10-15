@@ -251,7 +251,6 @@ const hView = () => (hstate.anomaly ? "anomaly" : hstate.derived ? "derived" : h
 const VIEW_GROUPS = { hydro: [undefined, "hydro"], derived: ["derived"], watermass: ["isopycnal", "fraction", "dynamic"] };
 const viewAllows = (key, view = hView()) => view === "anomaly" || VIEW_GROUPS[view].includes(hmeta.variables[key].group);
 const isIso = () => hVar().group === "isopycnal";
-const TERNARY_URL = "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0";
 // The depth used: per-cast derived variables have no depth ("cast" file); N2
 // is per interval, so the deepest standard depth falls back to the last interval.
 function hEffDepth() {
@@ -1377,13 +1376,6 @@ function setupHydroControls() {
     hstate.isopycnal = Number(e.target.value);
     render();
   });
-  $("ternary-open").addEventListener("click", () => {
-    const panel = $("ternary-panel");
-    if (!$("ternary-frame").src) $("ternary-frame").src = TERNARY_URL;     // loaded on first open (5 MB)
-    panel.hidden = !panel.hidden;
-    $("ternary-open").setAttribute("aria-pressed", String(!panel.hidden));
-  });
-  $("ternary-close").addEventListener("click", () => { $("ternary-panel").hidden = true; $("ternary-open").setAttribute("aria-pressed", "false"); });
   document.querySelectorAll("#chart-toggle button").forEach((b) => b.addEventListener("click", () => {
     hstate.chart = b.dataset.value;
     renderHydroChart();

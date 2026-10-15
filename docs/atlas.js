@@ -1221,9 +1221,25 @@ async function setLayer(choice, viewDataset) {
   render();
 }
 
+// EDA (exploratory data analysis) view, 2026-10-16: analyses that aren't maps
+// (for now the ternary plot, moved here from the Water masses view). It sits
+// over whichever map view was showing, which comes back when it closes.
+let edaOpen = false;
+const TERNARY_SRC = "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0";
+function setEda(open) {
+  stopPlay();
+  edaOpen = open;
+  updateLayerControls();
+  writeHash();
+}
+
 function updateLayerControls() {
   const hydro = state.layer === "hydro";
-  setToggle("layer-toggle", !hydro ? viewOf() : hView());
+  setToggle("layer-toggle", edaOpen ? "eda" : !hydro ? viewOf() : hView());
+  document.querySelector(".layout").classList.toggle("eda-mode", edaOpen);
+  document.querySelectorAll(".eda-only").forEach((e) => { e.hidden = !edaOpen; });
+  $("ternary-panel").hidden = !edaOpen;
+  if (edaOpen && !$("ternary-frame").src) $("ternary-frame").src = TERNARY_SRC;     // loaded on first open (5 MB)
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
@@ -1241,9 +1257,9 @@ function updateLayerControls() {
   $("dataset-box").hidden = hydro;
   for (const o of $("dataset-select").options) o.hidden = viewOf() !== viewOf(o.value);
   renderHighCounts();   // the distribution panels stay open in both views
-  document.querySelectorAll(".watermass-only").forEach((e) => { e.hidden = !(hydro && hView() === "watermass"); });
-  if (!(hydro && hView() === "watermass")) $("ternary-panel").hidden = true;
-  document.querySelector(".subtitle").textContent = hydro && hView() === "watermass"
+  document.querySelector(".subtitle").textContent = edaOpen
+    ? "Exploratory data analysis: relationships across the CalCOFI datasets"
+    : hydro && hView() === "watermass"
     ? "Water masses: Pacific Subarctic, Pacific Equatorial and North Pacific Central water fractions (OMP), and properties on the σθ 25.8 and 26.4 surfaces"
     : hydro && hstate.derived && !hstate.anomaly
     ? "Derived variables from CalCOFI bottle (1949–2021) and CTD (1993–2026) casts: isopycnal, nitricline, chlorophyll-maximum and mixed layer depths, spiciness, N², integrated chlorophyll and primary production"
@@ -1314,7 +1330,13 @@ function setupControls() {
   $("sampling-select").addEventListener("change", (e) => { state.sampling = Number(e.target.value); onFilterChange(); });
   $("net-select").addEventListener("change", (e) => { state.net = Number(e.target.value); onFilterChange(); });
   document.querySelectorAll("#view-toggle button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
-  document.querySelectorAll("#layer-toggle button").forEach((b) => b.addEventListener("click", () => setLayer(b.dataset.value)));
+  document.querySelectorAll("#layer-toggle button").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.value === "eda") { setEda(true); return; }
+    // Any map view closes the EDA view, back to that map (setLayer is a no-op if it was already showing).
+    if (edaOpen) setEda(false);
+    setLayer(b.dataset.value);
+  }));
+  $("ternary-close").addEventListener("click", () => setEda(false));
   $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
   $("dataset-select").addEventListener("change", (e) => chooseDataset(e.target.value));
   setupHydroControls();
@@ -1982,6 +2004,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
+  if (edaOpen) params.set("eda", "ternary");
   if (ensembleSigma !== 0.5) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
@@ -2025,6 +2048,7 @@ function readHash() {
   hstate.anomaly = params.get("layer") === "anomaly";
   hstate.derived = params.get("layer") === "derived";
   hstate.watermass = params.get("layer") === "watermass";
+  edaOpen = params.get("eda") === "ternary";
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));

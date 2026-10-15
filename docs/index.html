@@ -33,7 +33,7 @@
 
   <main class="layout">
     <aside class="controls" aria-label="Atlas controls">
-      <section class="control">
+      <section class="control eda-keep">
         <span class="label">Map</span>
         <div class="segmented grid2" id="layer-toggle" role="radiogroup" aria-label="Map">
           <button type="button" role="radio" data-value="ichthyo" aria-checked="true">Ichthyoplankton</button>
@@ -43,6 +43,7 @@
           <button type="button" role="radio" data-value="derived" aria-checked="false">Derived</button>
           <button type="button" role="radio" data-value="anomaly" aria-checked="false">Anomalies</button>
           <button type="button" role="radio" data-value="watermass" aria-checked="false">Water masses</button>
+          <button type="button" role="radio" data-value="eda" aria-checked="false">EDA</button>
         </div>
         <label class="checkbox"><input type="checkbox" id="bathy-toggle" checked> Depth contours <span class="nocase">(200–4000 m)</span></label>
       </section>
@@ -182,9 +183,11 @@
         <p id="period-label" class="period-label"></p>
       </section>
 
-      <section class="control watermass-only" hidden>
-        <span class="label">Ternary plot</span>
-        <button type="button" id="ternary-open" class="secondary-button" aria-pressed="false">Water masses vs. warm/cool-water larvae</button>
+      <section class="control eda-only" hidden>
+        <span class="label">Exploratory data analysis</span>
+        <div class="segmented" id="eda-toggle" role="radiogroup" aria-label="Analysis">
+          <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae</button>
+        </div>
         <p class="hint">Winter water-mass composition (Pacific Subarctic, Pacific Equatorial and North Pacific Central waters; OMP analysis of bottle data) at each core station, against the warm- and cool-water indicator larvae caught there, year by year.</p>
       </section>
 
