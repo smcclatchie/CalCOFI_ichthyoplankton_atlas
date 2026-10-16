@@ -169,7 +169,7 @@ async function renderEdaHeat() {
     `station's harmonic seasonal cycle at each depth (${ANOMALY_MIN_YEARS}+ years). Heatwaves (Hobday et al. 2016, seasonal): above the 90th percentile of ` +
     `the calendar season, ${baseline[0]}–${baseline[1]} baseline${nSeasons < 4 ? ` (${4 - nSeasons} season(s) with too few baseline years: none flagged)` : ""}; ` +
     `bars coloured by category; ◆ = non-ENSO (RONI below +0.5). Sections: temperature anomaly, 0–${HEAT_DEPTH} m, on one scale (±${top} °C). ` +
-    `Click the time series to show a season in the outlined panel (click a panel's title to choose it).`;
+    `Dotted lines A, B, C: the seasons in the panels below; click the time series to show a season in the outlined panel (click a panel's title to choose it).`;
 }
 
 function nearestHeatKey(steps, key) {
@@ -182,7 +182,7 @@ function nearestHeatKey(steps, key) {
 function drawHeatChart(series, src) {
   const box = $("heat-chart");
   const W = box.clientWidth || 900, H = box.clientHeight || 220;
-  const m = { l: 60, r: 56, t: 14, b: 26 };
+  const m = { l: 60, r: 56, t: 24, b: 40 };      // top: the panels' A/B/C tags; bottom: angled year labels
   if (!series.length) { box.innerHTML = `<p class="hint">No seasons with enough full-depth stations.</p>`; return; }
   const x0 = Math.floor(series[0].t) - 0.5, x1 = Math.ceil(series[series.length - 1].t) + 0.5;
   const hmax = Math.max(0.2, ...series.map((r) => Math.abs(r.hc))), hTop = Math.ceil(hmax * 4) / 4;
@@ -208,11 +208,11 @@ function drawHeatChart(series, src) {
   for (let v = -rTop; v <= rTop + 1e-9; v += rTop / 2) parts.push(`<text x="${W - m.r + 6}" y="${sr(v) + 3.5}" ${tick}>${signedValue(+v.toFixed(1))}</text>`);
   parts.push(`<text transform="translate(${m.l - 44} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>heat content anomaly (GJ m⁻²)</text>`);
   parts.push(`<text transform="translate(${W - 10} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>RONI, SCTI (°C)</text>`);
-  // a tick each year, labelled every 10
+  // a tick each year, labelled every 5 (angled)
   for (let yr = Math.ceil(x0); yr <= x1; yr++) {
-    const big = yr % 10 === 0;
-    parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${H - m.b}" y2="${H - m.b + (big ? 6 : 3)}" stroke="#85837c"/>`);
-    if (big) parts.push(`<text x="${sx(yr)}" y="${H - 8}" text-anchor="middle" ${tick}>${yr}</text>`);
+    const five = yr % 5 === 0, ly = H - m.b + 9;
+    parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${H - m.b}" y2="${H - m.b + (yr % 10 === 0 ? 7 : five ? 5 : 3)}" stroke="#85837c"/>`);
+    if (five) parts.push(`<text x="${sx(yr) + 3}" y="${ly}" text-anchor="end" transform="rotate(-45 ${sx(yr) + 3} ${ly})" ${tick}>${yr}</text>`);
   }
   // RONI (near-black) and SCTI (purple), over the seasons shown
   const indexPath = (seasons, color, width) => {
@@ -229,13 +229,19 @@ function drawHeatChart(series, src) {
     parts.push(`<rect x="${sx(r.t) - bw / 2}" y="${Math.min(y, y0)}" width="${bw}" height="${Math.max(0.5, Math.abs(y - y0))}" fill="${color}"${r.cat ? ' stroke="#3a2a1a" stroke-width="0.4"' : ""}/>`);
     if (r.nonEnso) parts.push(`<path d="M${sx(r.t)} ${y - 9} l3.5 3.5 l-3.5 3.5 l-3.5 -3.5 Z" fill="#1f1e1c"/>`);
   }
-  // the panels' seasons: A, B, C
-  heat.panels.forEach((k, n) => {
-    const r = series.find((x) => x.key === k);
-    if (!r) return;
-    parts.push(`<line x1="${sx(r.t)}" x2="${sx(r.t)}" y1="${m.t}" y2="${H - m.b}" stroke="#2a78d6" stroke-dasharray="3 2"/>`);
-    parts.push(`<text x="${sx(r.t)}" y="${m.t + 10}" text-anchor="middle" font-size="11" font-weight="700" fill="#2a78d6" ${font}>${"ABC"[n]}</text>`);
-  });
+  // the panels' seasons: a dotted line each, tagged A/B/C above the plot (tags too close
+  // together are moved apart, with a short leader to their line)
+  const marks = heat.panels.map((k, n) => ({ n, r: series.find((x) => x.key === k) })).filter((q) => q.r)
+    .map((q) => ({ ...q, x: sx(q.r.t) })).sort((a, b) => a.x - b.x);
+  let lastTag = -Infinity;
+  for (const q of marks) {
+    const tx = Math.max(q.x, lastTag + 17);
+    lastTag = tx;
+    parts.push(`<line x1="${q.x}" x2="${q.x}" y1="${m.t}" y2="${H - m.b}" stroke="#2a78d6" stroke-width="1.2" stroke-dasharray="3 2"/>`);
+    if (tx !== q.x) parts.push(`<line x1="${q.x}" x2="${tx}" y1="${m.t}" y2="${m.t - 5}" stroke="#2a78d6"/>`);
+    parts.push(`<rect x="${tx - 7}" y="${m.t - 19}" width="14" height="14" rx="3" fill="#2a78d6"/>`);
+    parts.push(`<text x="${tx}" y="${m.t - 8}" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff" ${font}>${"ABC"[q.n]}</text>`);
+  }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Heat content anomaly and RONI">${parts.join("")}</svg>`;
   const svg = box.querySelector("svg"), tip = document.createElement("div");
   tip.className = "chart-tip"; tip.hidden = true; box.appendChild(tip);
