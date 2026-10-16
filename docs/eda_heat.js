@@ -15,8 +15,8 @@
 //    mean; a heatwave with RONI below +0.5 is "non-ENSO" (user, 2026-10-17);
 //  - three temperature-anomaly sections side by side, drawn exactly as the
 //    map's anomaly sections (section.js computeSection / drawSectionSVG), for
-//    three seasons chosen to compare (by default the 1997-98 El Nino, the
-//    "Blob" in summer 2014 and the 2015-16 El Nino), sharing one symmetric colour
+//    three seasons chosen to compare (by default winter 1998, autumn 2015
+//    and winter 2026, CTD -- the user's choice), sharing one symmetric colour
 //    scale, with the 200 m heat-content depth marked.
 //
 // Heat-content anomaly at a station = rho * cp * integral over 0-200 m of the
@@ -31,12 +31,12 @@
 const HEAT_DEPTH = 200;
 const HEAT_RHO_CP = 1025 * 3990;            // J m^-3 K^-1
 const HEAT_MIN_STATIONS = 3;
-// The 1997-98 El Nino, the "Blob" as a non-ENSO heatwave (summer 2014: line 90's heatwave season before
-// RONI passed +0.5 in winter 2015), the 2015-16 El Nino.
-const HEAT_DEFAULTS = ["1998-winter", "2014-summer", "2016-winter"];
+// Defaults (user, 2026-10-17, from their chosen view): line 90, CTD, panels winter 1998 (El Nino),
+// autumn 2015 and winter 2026.
+const HEAT_DEFAULTS = ["1998-winter", "2015-autumn", "2026-winter"];
 // The comparison sections stop at the heat-content depth (user, 2026-10-17).
 const HEAT_VAR = { label: "Temperature anomaly", units: "°C", col: "t", style: "temperature", anomaly: true, diverging: true, maxDepth: HEAT_DEPTH };
-const heat = { line: 90, source: "bottle", panels: HEAT_DEFAULTS.slice(), focus: 0, ready: false, token: 0, roni: null, scti: null };
+const heat = { line: 90, source: "ctd", panels: HEAT_DEFAULTS.slice(), focus: 0, ready: false, token: 0, roni: null, scti: null };
 // 30-year baselines for the heatwave thresholds (Hobday et al. recommend 30 years): bottle 1983-2012, CTD 1993-2022.
 const HEAT_BASELINE = { bottle: [1983, 2012], ctd: [1993, 2022] };
 const MHW_CATEGORIES = [null, { name: "moderate", color: "#ffc866" }, { name: "strong", color: "#ff6900" },
