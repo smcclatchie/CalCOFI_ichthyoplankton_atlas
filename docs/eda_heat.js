@@ -136,8 +136,8 @@ async function renderEdaHeat() {
   const { steps, series, clim, baseline } = heatSeries(d, geo, src, lineKey);
   drawHeatChart(series, src);
   // the three comparison sections, on one symmetric scale
-  const keys = new Set(steps.map((s) => s.key));
-  heat.panels = heat.panels.map((k, n) => (keys.has(k) ? k : nearestHeatKey(steps, k) || HEAT_DEFAULTS[n]));
+  // Each panel keeps its chosen season whatever the line or source (user, 2026-10-17): one the
+  // current data don't have is shown as such, and comes back when the data do.
   const secs = heat.panels.map((k) => {
     const step = steps.find((s) => s.key === k);
     return step ? computeSection(d, geo, HEAT_VAR, step.periods, null, src, lineKey) : null;
@@ -147,18 +147,18 @@ async function renderEdaHeat() {
   document.querySelectorAll("#heat-panels .heat-panel").forEach((box, n) => {
     const step = steps.find((s) => s.key === heat.panels[n]);
     const sel = box.querySelector("select");
-    if (sel.dataset.for !== lineKey) {
-      sel.innerHTML = steps.map((s) => `<option value="${s.key}">${seasonText(s)}</option>`).join("");
-      sel.dataset.for = lineKey;
-    }
+    const [py, pse] = heat.panels[n].split("-"), wanted = { key: heat.panels[n], year: +py, season: pse };
+    const opts = step ? steps : [...steps, wanted].sort((a, b) => heatTime(a) - heatTime(b));
+    sel.innerHTML = opts.map((s) => `<option value="${s.key}"${s === wanted ? " disabled" : ""}>${seasonText(s)}${s === wanted ? " (no data)" : ""}</option>`).join("");
     sel.value = heat.panels[n];
     const r = series.find((x) => x.key === heat.panels[n]);
     box.querySelector(".heat-stats").textContent = r
       ? `heat content ${signedValue(+r.hc.toFixed(2))} GJ m⁻² · RONI ${r.roni === null ? "–" : signedValue(r.roni)}${r.roni >= 0.5 ? " (El Niño)" : ""}` +
         (r.scti !== null ? ` · SCTI ${signedValue(r.scti)}` : "") +
         (r.cat ? ` · ${MHW_CATEGORIES[r.cat].name} heatwave${r.nonEnso ? ", non-ENSO" : ""}` : "")
-      : "too few full-depth stations for heat content";
+      : step ? "too few full-depth stations for heat content" : "";
     const chart = box.querySelector(".heat-plot");
+    if (!step) { chart.innerHTML = `<p class="hint" style="padding:8px">No ${src.label.split(" ")[0].toLowerCase()} data on line ${heat.line} in ${seasonText(wanted)}.</p>`; return; }
     const sec = step && computeSection(d, geo, HEAT_VAR, step.periods, fixed, src, lineKey);
     if (!sec || !sec.ok) { chart.innerHTML = `<p class="hint" style="padding:8px">Too few of line ${heat.line}'s stations with a climatology were sampled in ${step ? seasonText(step) : "this season"}.</p>`; return; }
     drawSectionSVG(chart, sec, { fit: "width", id: `heat-sec-${n}`, line: heat.line, note: false });
@@ -170,13 +170,6 @@ async function renderEdaHeat() {
     `the calendar season, ${baseline[0]}–${baseline[1]} baseline${nSeasons < 4 ? ` (${4 - nSeasons} season(s) with too few baseline years: none flagged)` : ""}; ` +
     `bars coloured by category; ◆ = non-ENSO (RONI below +0.5). Sections: temperature anomaly, 0–${HEAT_DEPTH} m, on one scale (±${top} °C). ` +
     `Dotted lines A, B, C: the seasons in the panels below; drag one to another season, or click the time series to move the outlined panel's (click a panel's title to outline it).`;
-}
-
-function nearestHeatKey(steps, key) {
-  if (!steps.length) return null;
-  const [y, se] = (key || "").split("-");
-  const want = heatTime({ year: +y, season: se || "winter" });
-  return steps.reduce((b, s) => (Math.abs(heatTime(s) - want) < Math.abs(heatTime(b) - want) ? s : b)).key;
 }
 
 function drawHeatChart(series, src) {
