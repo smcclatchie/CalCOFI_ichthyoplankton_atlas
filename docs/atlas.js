@@ -1232,7 +1232,7 @@ const TERNARY_PLOTS = {
   heat: {
     native: { panel: "eda-heat", render: () => renderEdaHeat() },
     title: "Heat content: El Niño and marine heatwaves",
-    hint: "Upper-ocean (0–200 m) heat-content anomaly along a core line, season by season, with the Relative Oceanic Niño Index (RONI): El Niño seasons shaded, non-ENSO warm seasons in orange. Below, temperature-anomaly sections for three seasons to compare, on one colour scale (click the time series to pick one).",
+    hint: "Upper-ocean (0–200 m) heat-content anomaly along a core line, season by season, with the Relative Oceanic Niño Index (RONI) and the Southern California Temperature Index (SCTI, Spray gliders): El Niño seasons shaded, marine heatwaves (Hobday et al. 2016, seasonal) coloured by category, non-ENSO ones marked. Below, temperature-anomaly sections for three seasons to compare, on one colour scale (click the time series to pick one).",
   },
   sections: {
     native: { panel: "eda-sections", render: () => renderEdaSections() },
