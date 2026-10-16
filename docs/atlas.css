@@ -416,8 +416,8 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .heat-key { display: flex; gap: 5px; align-items: center; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
 .heat-key i { display: inline-block; width: 10px; height: 10px; margin-left: 6px; }
 .heat-key .hk-warm { background: #c0392b; } .heat-key .hk-cool { background: #2f6fb0; } .heat-key .hk-mhw { background: #f08c00; }
-.heat-key .hk-nino { background: #f3d7cf; } .heat-key .hk-roni { height: 0; border-top: 1.5px solid #2b2a27; width: 14px; }
-.heat-key .hk-scti { height: 0; border-top: 2px solid #0f8b8d; width: 14px; }
+.heat-key .hk-nino { background: #e5e5e5; border: 1px solid #cdcdcd; } .heat-key .hk-roni { height: 0; border-top: 2px solid #1f1e1c; width: 14px; }
+.heat-key .hk-scti { height: 0; border-top: 2.5px solid #7b2cbf; width: 14px; }
 #eda-toggle button { white-space: normal; text-align: left; }
 .ternary-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .ternary-panel h2 { margin: 0; font-size: 14px; font-weight: 600; }

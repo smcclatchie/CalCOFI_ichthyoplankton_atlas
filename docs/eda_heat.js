@@ -34,7 +34,8 @@ const HEAT_MIN_STATIONS = 3;
 // The 1997-98 El Nino, the "Blob" as a non-ENSO heatwave (summer 2014: line 90's heatwave season before
 // RONI passed +0.5 in winter 2015), the 2015-16 El Nino.
 const HEAT_DEFAULTS = ["1998-winter", "2014-summer", "2016-winter"];
-const HEAT_VAR = { label: "Temperature anomaly", units: "°C", col: "t", style: "temperature", anomaly: true, diverging: true };
+// The comparison sections stop at the heat-content depth (user, 2026-10-17).
+const HEAT_VAR = { label: "Temperature anomaly", units: "°C", col: "t", style: "temperature", anomaly: true, diverging: true, maxDepth: HEAT_DEPTH };
 const heat = { line: 90, source: "bottle", panels: HEAT_DEFAULTS.slice(), focus: 0, ready: false, token: 0, roni: null, scti: null };
 // 30-year baselines for the heatwave thresholds (Hobday et al. recommend 30 years): bottle 1983-2012, CTD 1993-2022.
 const HEAT_BASELINE = { bottle: [1983, 2012], ctd: [1993, 2022] };
@@ -160,14 +161,14 @@ async function renderEdaHeat() {
     const chart = box.querySelector(".heat-plot");
     const sec = step && computeSection(d, geo, HEAT_VAR, step.periods, fixed, src, lineKey);
     if (!sec || !sec.ok) { chart.innerHTML = `<p class="hint" style="padding:8px">Too few of line ${heat.line}'s stations with a climatology were sampled in ${step ? seasonText(step) : "this season"}.</p>`; return; }
-    drawSectionSVG(chart, sec, { fit: "width", id: `heat-sec-${n}`, line: heat.line, depthMark: [HEAT_DEPTH, HEAT_DEPTH], note: false });
+    drawSectionSVG(chart, sec, { fit: "width", id: `heat-sec-${n}`, line: heat.line, note: false });
   });
   markHeatFocus();
   const nSeasons = Object.keys(clim).length;
   $("heat-note").textContent = `Heat-content anomaly, 0–${HEAT_DEPTH} m, mean over line ${heat.line}'s stations (${src.label}); temperature anomalies from each ` +
     `station's harmonic seasonal cycle at each depth (${ANOMALY_MIN_YEARS}+ years). Heatwaves (Hobday et al. 2016, seasonal): above the 90th percentile of ` +
     `the calendar season, ${baseline[0]}–${baseline[1]} baseline${nSeasons < 4 ? ` (${4 - nSeasons} season(s) with too few baseline years: none flagged)` : ""}; ` +
-    `bars coloured by category; ◆ = non-ENSO (RONI below +0.5). Sections: temperature anomaly on one scale (±${top} °C); blue mark: ${HEAT_DEPTH} m. ` +
+    `bars coloured by category; ◆ = non-ENSO (RONI below +0.5). Sections: temperature anomaly, 0–${HEAT_DEPTH} m, on one scale (±${top} °C). ` +
     `Click the time series to show a season in the outlined panel (click a panel's title to choose it).`;
 }
 
@@ -196,7 +197,8 @@ function drawHeatChart(series, src) {
     if (r < 0.5) continue;
     const [y, se] = key.split("-"), t = heatTime({ year: +y, season: se });
     if (t < x0 || t > x1) continue;
-    parts.push(`<rect x="${sx(t - 0.125)}" y="${m.t}" width="${Math.max(1, sx(t + 0.125) - sx(t - 0.125))}" height="${H - m.t - m.b}" fill="${r >= 1.5 ? "#e8b4a8" : "#f3d7cf"}"/>`);
+    // neutral greys, clear of the heatwave colours (user)
+    parts.push(`<rect x="${sx(t - 0.125)}" y="${m.t}" width="${Math.max(1, sx(t + 0.125) - sx(t - 0.125))}" height="${H - m.t - m.b}" fill="${r >= 1.5 ? "#cdcdcd" : "#e5e5e5"}"/>`);
   }
   // axes
   for (let v = -hTop; v <= hTop + 1e-9; v += hTop / 2) {
@@ -206,15 +208,20 @@ function drawHeatChart(series, src) {
   for (let v = -rTop; v <= rTop + 1e-9; v += rTop / 2) parts.push(`<text x="${W - m.r + 6}" y="${sr(v) + 3.5}" ${tick}>${signedValue(+v.toFixed(1))}</text>`);
   parts.push(`<text transform="translate(${m.l - 44} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>heat content anomaly (GJ m⁻²)</text>`);
   parts.push(`<text transform="translate(${W - 10} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>RONI, SCTI (°C)</text>`);
-  for (let yr = Math.ceil(x0 / 10) * 10; yr <= x1; yr += 10) parts.push(`<text x="${sx(yr)}" y="${H - 8}" text-anchor="middle" ${tick}>${yr}</text>`);
-  // RONI (thin dark line) and SCTI (teal), over the seasons shown
+  // a tick each year, labelled every 10
+  for (let yr = Math.ceil(x0); yr <= x1; yr++) {
+    const big = yr % 10 === 0;
+    parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${H - m.b}" y2="${H - m.b + (big ? 6 : 3)}" stroke="#85837c"/>`);
+    if (big) parts.push(`<text x="${sx(yr)}" y="${H - 8}" text-anchor="middle" ${tick}>${yr}</text>`);
+  }
+  // RONI (near-black) and SCTI (purple), over the seasons shown
   const indexPath = (seasons, color, width) => {
     const pts = Object.entries(seasons).map(([k, r]) => { const [y, se] = k.split("-"); return [heatTime({ year: +y, season: se }), r]; })
       .filter(([t]) => t >= x0 && t <= x1).sort((a, b) => a[0] - b[0]);
-    if (pts.length) parts.push(`<path d="M${pts.map(([t, r]) => `${sx(t).toFixed(1)},${sr(r).toFixed(1)}`).join("L")}" fill="none" stroke="${color}" stroke-width="${width}" opacity="0.8"/>`);
+    if (pts.length) parts.push(`<path d="M${pts.map(([t, r]) => `${sx(t).toFixed(1)},${sr(r).toFixed(1)}`).join("L")}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linejoin="round"/>`);
   };
-  indexPath(heat.roni.seasons, "#2b2a27", 1);
-  indexPath(heat.scti.seasons, "#0f8b8d", 1.6);
+  indexPath(heat.roni.seasons, "#1f1e1c", 2);
+  indexPath(heat.scti.seasons, "#7b2cbf", 2.4);
   // heat content: bars, warm pink-red / cool blue; heatwaves in Hobday's category colours, non-ENSO ones marked
   const bw = Math.max(1.5, (sx(0.25) - sx(0)) * 0.8);
   for (const r of series) {
