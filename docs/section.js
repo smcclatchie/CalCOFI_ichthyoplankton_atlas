@@ -5,12 +5,11 @@
 // map's water-mass fraction; in the Anomalies view, the map's variable as a
 // departure from each station's climatology at each standard depth.
 //
-// The section's horizontal axis has the map's scale along the line (the line
-// runs roughly straight in the map's projection, so position along it maps
-// linearly to screen x): the distance between any two stations is the same
-// width on both, whatever the map's position, so the section widens and
-// narrows as the map zooms. Offshore is to the left, the coast at the right
-// edge of the plot.
+// The section fills the panel's width (2026-10-17, user: the most detail; it
+// had the map's horizontal scale along the line, so it widened and narrowed
+// as the map zoomed). Both axes follow the data: distance spans the stations
+// sampled, depth ends at the deepest value. Offshore is to the left, the
+// inshore sampled station at the right edge of the plot.
 //
 // Data (docs/data/hydro/<source>/line<L>.json, build_hydro_data.py): station x
 // survey month x standard-depth means: p, st, z (depth index), n, t, s, d
@@ -55,7 +54,6 @@ const sstate = { display: "map", line: 90, variable: "map" };   // variable: "ma
 const scache = new Map();
 let sLoadToken = 0;
 let sCur = null;                     // the computed section, redrawn on every map move
-let sFrame = 0;
 
 const sectionView = () => ["hydro", "watermass", "anomaly"].includes(hView());
 const sectionShown = () => sstate.display === "section" && state.layer === "hydro" && sectionView();
@@ -433,7 +431,7 @@ function showSectionMessage(text) {
 // line, fitted from the map positions of the line's stations.
 function drawSection() {
   if (!sCur || !sectionShown()) return;
-  drawSectionSVG($("section-chart"), sCur, { fit: "map", id: "sec", line: sstate.line, mapDepth: true, note: true });
+  drawSectionSVG($("section-chart"), sCur, { fit: "width", id: "sec", line: sstate.line, mapDepth: true, note: true });
 }
 
 // Draw a computed section (computeSection) into box. opts: fit "map" (the
@@ -609,12 +607,7 @@ function addSectionLayers() {
   map.addSource("section-line", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({ id: "section-line", type: "line", source: "section-line",
     paint: { "line-color": "#1f1e1c", "line-width": 3, "line-opacity": 0.75, "line-dasharray": [2, 1] } }, "zero");
-  // The section takes the map's scale: redraw it as the map zooms.
-  map.on("zoom", () => {
-    if (!sCur) return;
-    cancelAnimationFrame(sFrame);
-    sFrame = requestAnimationFrame(drawSection);
-  });
+  // (The section fills its panel's width since 2026-10-17, so it no longer redraws as the map zooms.)
 }
 
 function setupSectionControls() {
