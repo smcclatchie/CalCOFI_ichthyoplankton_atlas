@@ -1,7 +1,7 @@
 // EDA view: water-mass sections (2026-10-17, user; EDA list item 1, the core
 // depths of the water masses). Three sections of one CalCOFI line in a column
-// -- North Pacific Central (NPCW), Pacific Subarctic (PSA) and Pacific
-// Equatorial (PEW) water fractions, 0-400 m (both axes fitted to the season's data, as every section) -- drawn with the map's section
+// -- Pacific Subarctic (PSA), Pacific Equatorial (PEW) and North Pacific
+// Central (NPCW) water fractions, top to bottom, 0-400 m (both axes fitted to the season's data, as every section) -- drawn with the map's section
 // code (section.js computeSection / drawSectionSVG), one season at a time,
 // with one stepper for all three. Each fills the panel's width (not the map's
 // scale) and all three share a fixed 0-100% colour range, so seasons compare.
@@ -9,7 +9,7 @@
 // map's sections, By season); the top 30 m is greyed (WM_SURFACE_M).
 "use strict";
 
-const EDA_SECTION_VARS = ["wm_npcw", "wm_psa", "wm_pew"];
+const EDA_SECTION_VARS = ["wm_psa", "wm_pew", "wm_npcw"];     // top to bottom (user, 2026-10-17)
 const edaSec = { line: 90, source: "bottle", key: null, timer: 0, ready: false, token: 0 };
 
 // The line's seasons with water-mass data, in order: [{ key, season, year, periods }].
