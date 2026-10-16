@@ -350,6 +350,9 @@ function computeSection(d, geo, v, periods, fixed, src = hSrc()) {
   if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods);
   const cols = sectionColumns(profiles, v, src);
   if (cols.length < 2) return { ok: false, profiles, cols };
+  // v.fitDepth: the depth axis ends at the deepest value in this section (the
+  // EDA sections, 2026-10-17: CTD seasons often stop short of 400 m).
+  if (v.fitDepth) v = { ...v, maxDepth: Math.max(50, ...cols.flatMap((c) => c.pts.map((pt) => pt[0]))) };
   const values = sectionValues(cols);
   const scale = sectionScale(values, fixed, v);
   const grid = sectionGrid(cols, geo.xmax, sectionDepth(v));
@@ -486,7 +489,7 @@ function drawSectionSVG(box, sec, opts) {
   // axes: depth (left), with the map's depth (or depth interval) highlighted
   const tick = 'font-size="11" fill="#5b5a55"';
   const md = opts.mapDepth ? mapDepth() : null, mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
-  for (let z = 0; z <= D; z += D <= 200 ? 50 : 100) {
+  for (let z = 0; z <= D; z += D <= 300 ? 50 : 100) {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
     if (mark && py(z) > mark.y0 - 6 && py(z) < mark.y1 + 6) continue;      // under the highlight
     parts.push(`<text x="${m.l - 6}" y="${py(z) + 4}" text-anchor="end" ${tick} ${font}>${z}</text>`);
