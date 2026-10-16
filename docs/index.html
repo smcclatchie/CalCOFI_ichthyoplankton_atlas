@@ -187,6 +187,7 @@
         <span class="label">Exploratory data analysis</span>
         <div class="segmented" id="eda-toggle" role="radiogroup" aria-label="Analysis">
           <button type="button" role="radio" data-value="sections" aria-checked="false">Water-mass sections: PSA, PEW and NPCW along a line</button>
+          <button type="button" role="radio" data-value="heat" aria-checked="false">Heat content: El Niño and marine heatwaves</button>
           <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae (winter and spring)</button>
           <button type="button" role="radio" data-value="krill" aria-checked="false">Ternary plot: water masses vs. krill assemblages (winter and spring)</button>
         </div>
@@ -302,6 +303,27 @@
         </header>
         <iframe id="ternary-frame" title="Ternary plot" loading="lazy"></iframe>
       </section>
+      <section id="eda-heat" class="eda-sections" hidden aria-label="Heat content">
+        <header>
+          <h2>Heat content, 0–200 m: El Niño and marine heatwaves</h2>
+          <div class="eda-sec-controls">
+            <label>Line <select id="heat-line"></select></label>
+            <div class="segmented" id="heat-source" role="radiogroup" aria-label="Source">
+              <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle</button>
+              <button type="button" role="radio" data-value="ctd" aria-checked="false">CTD</button>
+            </div>
+            <span class="heat-key"><i class="hk-warm"></i>warm <i class="hk-cool"></i>cool <i class="hk-mhw"></i>non-ENSO warm <i class="hk-nino"></i>El Niño (RONI ≥ +0.5) <i class="hk-roni"></i>RONI</span>
+          </div>
+          <button type="button" id="heat-close" aria-label="Back to the map">✕</button>
+        </header>
+        <div id="heat-chart"></div>
+        <div id="heat-panels">
+          <div class="heat-panel"><h3>A <select aria-label="Season A"></select></h3><div class="heat-stats"></div><div class="heat-plot"></div></div>
+          <div class="heat-panel"><h3>B <select aria-label="Season B"></select></h3><div class="heat-stats"></div><div class="heat-plot"></div></div>
+          <div class="heat-panel"><h3>C <select aria-label="Season C"></select></h3><div class="heat-stats"></div><div class="heat-plot"></div></div>
+        </div>
+        <p class="hint" id="heat-note"></p>
+      </section>
       <section id="eda-sections" class="eda-sections" hidden aria-label="Water-mass sections">
         <header>
           <h2>Water-mass sections</h2>
@@ -362,6 +384,7 @@
   <script src="hydro.js"></script>
   <script src="section.js"></script>
   <script src="eda_sections.js"></script>
+  <script src="eda_heat.js"></script>
   <script src="atlas.js"></script>
 </body>
 </html>

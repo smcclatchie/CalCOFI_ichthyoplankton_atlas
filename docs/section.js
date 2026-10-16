@@ -74,10 +74,10 @@ function sVar() {
 
 // Climatology along the line: "station|depth index" -> fitted cycle, for one column.
 const sClimCache = new Map();
-function sectionClimatology(d, col) {
-  const key = `${sKey()}/${col}`;
+function sectionClimatology(d, col, lineKey = sKey(), src = hSrc()) {
+  const key = `${lineKey}/${col}`;
   if (sClimCache.has(key)) return sClimCache.get(key);
-  const periods = hSrc().periods, obs = new Map();
+  const periods = src.periods, obs = new Map();
   for (let i = 0; i < d.p.length; i++) {
     const v = d[col]?.[i];
     if (v === null || v === undefined) continue;
@@ -93,9 +93,9 @@ function sectionClimatology(d, col) {
 
 // Profiles as departures from their fitted cycles, averaged over the survey
 // months shown (periods).
-function sectionAnomalies(d, profiles, v, periods) {
-  const clim = sectionClimatology(d, v.col);
-  const months = [...new Set(periods.map((p) => hSrc().periods[p].month))];
+function sectionAnomalies(d, profiles, v, periods, src = hSrc(), lineKey = sKey()) {
+  const clim = sectionClimatology(d, v.col, lineKey, src);
+  const months = [...new Set(periods.map((p) => src.periods[p].month))];
   for (const p of profiles) {
     if (!p[v.col]) continue;
     p[v.col] = p[v.col].map((val, k) => {
@@ -343,9 +343,10 @@ async function renderSection() {
 // fewer than two stations have values. fixed: the colour range, or null for a
 // scale fitted to this section. Used by the map's section panel and the EDA
 // view's water-mass sections.
-function computeSection(d, geo, v, periods, fixed, src = hSrc()) {
+// lineKey: "<source>/line<L>" of d (for the anomaly climatology's cache).
+function computeSection(d, geo, v, periods, fixed, src = hSrc(), lineKey = sKey()) {
   let profiles = sectionProfiles(d, periods, geo, src);
-  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods);
+  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods, src, lineKey);
   const cols = sectionColumns(profiles, v, src);
   if (cols.length < 2) return { ok: false, profiles, cols };
   // Both axes follow the data (2026-10-17, user, every section view): the depth
@@ -437,7 +438,8 @@ function drawSection() {
 // Draw a computed section (computeSection) into box. opts: fit "map" (the
 // map's scale along the line, as below) or "width" (the line fills the box);
 // id (prefix for the SVG's clip paths, unique per section on the page); line;
-// mapDepth (highlight the map's depth); note (the scale note under it).
+// mapDepth (highlight the map's depth) or depthMark ([top, bottom] m to
+// highlight instead); note (the scale note under it).
 function drawSectionSVG(box, sec, opts) {
   const { v, geo, scale, grid, labels, x0, x1 } = sec, span = x1 - x0;
   const D = sectionDepth(v), id = opts.id;
@@ -492,7 +494,7 @@ function drawSectionSVG(box, sec, opts) {
   parts.push("</g>");
   // axes: depth (left), with the map's depth (or depth interval) highlighted
   const tick = 'font-size="11" fill="#5b5a55"';
-  const md0 = opts.mapDepth ? mapDepth() : null, md = md0 && md0[0] <= D ? md0 : null, mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
+  const md0 = opts.depthMark || (opts.mapDepth ? mapDepth() : null), md = md0 && md0[0] <= D ? md0 : null, mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
   for (let z = 0; z <= D; z += D <= 300 ? 50 : 100) {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
     if (mark && py(z) > mark.y0 - 6 && py(z) < mark.y1 + 6) continue;      // under the highlight

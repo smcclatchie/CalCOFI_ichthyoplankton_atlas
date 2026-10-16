@@ -1228,9 +1228,14 @@ async function setLayer(choice, viewDataset) {
 // Firebase address (Fishing Maps repo, upload_calcofi_ternary.py).
 let edaOpen = false, edaPlot = "ternary";
 const TERNARY_PLOTS = {
-  // Drawn in the atlas itself (eda_sections.js), not a published page.
+  // Drawn in the atlas itself (native: its panel and render function), not a published page.
+  heat: {
+    native: { panel: "eda-heat", render: () => renderEdaHeat() },
+    title: "Heat content: El Niño and marine heatwaves",
+    hint: "Upper-ocean (0–200 m) heat-content anomaly along a core line, season by season, with the Relative Oceanic Niño Index (RONI): El Niño seasons shaded, non-ENSO warm seasons in orange. Below, temperature-anomaly sections for three seasons to compare, on one colour scale (click the time series to pick one).",
+  },
   sections: {
-    native: true,
+    native: { panel: "eda-sections", render: () => renderEdaSections() },
     title: "Water-mass sections",
     hint: "Pacific Subarctic, Pacific Equatorial and North Pacific Central water fractions (OMP analysis of bottle or CTD casts) along any of the six core lines (76.7–93.3), 0–400 m, one season at a time: the three sections step together. The top 30 m is greyed, where the OMP analysis is not valid.",
   },
@@ -1260,8 +1265,9 @@ function updateLayerControls() {
   document.querySelectorAll(".eda-only").forEach((e) => { e.hidden = !edaOpen; });
   const plot = TERNARY_PLOTS[edaPlot];
   $("ternary-panel").hidden = !edaOpen || Boolean(plot.native);
-  $("eda-sections").hidden = !(edaOpen && plot.native);
-  if (edaOpen && plot.native) renderEdaSections(); else edaStop();
+  for (const p of Object.values(TERNARY_PLOTS)) if (p.native) $(p.native.panel).hidden = !(edaOpen && p === plot);
+  if (edaOpen && plot.native) plot.native.render();
+  if (!(edaOpen && edaPlot === "sections")) edaStop();
   setToggle("eda-toggle", edaPlot);
   $("ternary-title").textContent = plot.title;
   $("eda-hint").textContent = plot.hint;
@@ -1365,6 +1371,7 @@ function setupControls() {
   }));
   $("ternary-close").addEventListener("click", () => setEda(false));
   $("eda-sec-close").addEventListener("click", () => setEda(false));
+  $("heat-close").addEventListener("click", () => setEda(false));
   document.querySelectorAll("#eda-toggle button").forEach((b) => b.addEventListener("click", () => setEda(true, b.dataset.value)));
   $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
   $("dataset-select").addEventListener("change", (e) => chooseDataset(e.target.value));
@@ -1406,7 +1413,7 @@ function setupControls() {
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      if (edaOpen && edaPlot === "sections") renderEdaSections();
+      if (edaOpen && TERNARY_PLOTS[edaPlot].native) TERNARY_PLOTS[edaPlot].native.render();
       if (state.layer === "hydro" && sectionShown()) renderSection();
       if (state.layer === "hydro") { if (hstate.stationKey !== null) renderHydroChart(); renderHighCounts(); return; }
       if (state.station !== null) renderStationChart();
@@ -2037,6 +2044,7 @@ function writeHash() {
   if (!bathyOn) params.set("bathy", "0");
   if (edaOpen) params.set("eda", edaPlot);
   if (edaOpen && edaPlot === "sections") writeEdaSectionsHash(params);
+  if (edaOpen && edaPlot === "heat") writeEdaHeatHash(params);
   if (ensembleSigma !== 0.5) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
@@ -2083,6 +2091,7 @@ function readHash() {
   edaOpen = params.get("eda") in TERNARY_PLOTS;
   if (edaOpen) edaPlot = params.get("eda");
   if (edaPlot === "sections") readEdaSectionsHash(params);
+  if (edaPlot === "heat") readEdaHeatHash(params);
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
