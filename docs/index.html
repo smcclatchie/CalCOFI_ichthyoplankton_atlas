@@ -186,6 +186,7 @@
       <section class="control eda-only" hidden>
         <span class="label">Exploratory data analysis</span>
         <div class="segmented" id="eda-toggle" role="radiogroup" aria-label="Analysis">
+          <button type="button" role="radio" data-value="sections" aria-checked="false">Water-mass sections: NPCW, PSA and PEW along a line</button>
           <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae (winter and spring)</button>
           <button type="button" role="radio" data-value="krill" aria-checked="false">Ternary plot: water masses vs. krill assemblages (winter and spring)</button>
         </div>
@@ -301,6 +302,32 @@
         </header>
         <iframe id="ternary-frame" title="Ternary plot" loading="lazy"></iframe>
       </section>
+      <section id="eda-sections" class="eda-sections" hidden aria-label="Water-mass sections">
+        <header>
+          <h2>Water-mass sections</h2>
+          <div class="eda-sec-controls">
+            <label>Line <select id="eda-sec-line"></select></label>
+            <div class="segmented" id="eda-sec-source" role="radiogroup" aria-label="Source">
+              <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle</button>
+              <button type="button" role="radio" data-value="ctd" aria-checked="false">CTD</button>
+            </div>
+            <div class="stepper">
+              <button type="button" id="eda-sec-prev" aria-label="Previous season">◀</button>
+              <button type="button" id="eda-sec-play">▶ Play</button>
+              <button type="button" id="eda-sec-next" aria-label="Next season">▶</button>
+            </div>
+            <input id="eda-sec-range" type="range" min="0" max="0" value="0" aria-label="Season">
+            <span id="eda-sec-when" class="eda-sec-when"></span>
+          </div>
+          <button type="button" id="eda-sec-close" aria-label="Back to the map">✕</button>
+        </header>
+        <div id="eda-sec-charts">
+          <div class="eda-sec-chart"><h3></h3><div class="eda-sec-plot"></div></div>
+          <div class="eda-sec-chart"><h3></h3><div class="eda-sec-plot"></div></div>
+          <div class="eda-sec-chart"><h3></h3><div class="eda-sec-plot"></div></div>
+        </div>
+        <p class="hint" id="eda-sec-note"></p>
+      </section>
       <section id="section-panel" class="section-panel" hidden aria-label="Hydrographic section">
         <header>
           <h2 id="section-title"></h2>
@@ -334,6 +361,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
   <script src="hydro.js"></script>
   <script src="section.js"></script>
+  <script src="eda_sections.js"></script>
   <script src="atlas.js"></script>
 </body>
 </html>

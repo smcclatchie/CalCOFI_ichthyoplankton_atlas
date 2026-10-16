@@ -41,6 +41,12 @@ const SECTION_EXTRA = {
   geovel: { label: "Geostrophic velocity, relative to 500 dbar (poleward +)", units: "cm s⁻¹", style: "salinity", diverging: true, geostrophic: true },
 };
 const SECTION_MAX_GAP_KM = 150;
+// Water-mass fractions are greyed out in the top WM_SURFACE_M (2026-10-17,
+// user): surface temperature, oxygen and nutrients are changed by heating, gas
+// exchange and uptake, which the OMP analysis treats as conservative (PEW
+// shows a spurious surface high). As the EDA ternary plots, which leave 0-30 m out.
+const WM_SURFACE_M = 30;
+const WM_COLUMNS = new Set(["psa", "pew", "npcw"]);
 const SECTION_DEPTH = 500;
 const sectionDepth = (v) => v.maxDepth || SECTION_DEPTH;      // the depth axis: 0-200 m for chlorophyll
 const sstate = { display: "map", line: 90, variable: "map" };   // variable: "map" (the map's), "n2", "geovel"
@@ -63,7 +69,7 @@ function sVar() {
   // Log-scale variables (chlorophyll): values log10, shown as ug/L or as a ratio to normal (no unit).
   const log = Boolean(hVar().log);
   return { label: hLabel(), units: log && hstate.anomaly ? "" : hVar().units, col, style: styleKey(), anomaly: hstate.anomaly,
-    diverging: hstate.anomaly, log, maxDepth: hVar().maxDepth };
+    diverging: hstate.anomaly, log, maxDepth: hVar().maxDepth, surface: WM_COLUMNS.has(col) ? WM_SURFACE_M : 0 };
 }
 
 // Climatology along the line: "station|depth index" -> fitted cycle, for one column.
@@ -102,8 +108,8 @@ function sectionAnomalies(d, profiles, v, periods) {
   return profiles;
 }
 
-async function loadSection() {
-  const key = sKey();
+// key: "<source>/line<L>" (the map's by default; the EDA view's sections pass their own).
+async function loadSection(key = sKey()) {
   if (!scache.has(key)) {
     const d = await getJSON(`hydro/${key}.json`);
     d.byPeriod = new Map();
@@ -134,8 +140,8 @@ function nominalPosition(line, station) {
 // one along the line (4 nm per station unit); the section spans the regularly
 // occupied ones (at least 10% as many survey months as the most-occupied
 // station).
-function lineGeometry(d) {
-  const all = hSrc().stations.map((s, i) => ({ ...s, ...nominalPosition(s.line, s.station), i })).filter((s) => s.line === sstate.line);
+function lineGeometry(d, src = hSrc(), line = sstate.line) {
+  const all = src.stations.map((s, i) => ({ ...s, ...nominalPosition(s.line, s.station), i })).filter((s) => s.line === line);
   if (!all.length) return null;
   const visits = new Map();
   for (let i = 0; i < d.p.length; i++) if (d.z[i] === 0) visits.set(d.st[i], (visits.get(d.st[i]) || 0) + 1);
@@ -147,8 +153,8 @@ function lineGeometry(d) {
   return { stations: all.filter((s) => x.get(s.i) <= xmax), x, xmax };
 }
 
-function sectionProfiles(d, periods, geo) {
-  const depths = hSrc().depths;
+function sectionProfiles(d, periods, geo, src = hSrc()) {
+  const depths = src.depths;
   const acc = new Map();
   for (const p of periods) {
     for (const i of d.byPeriod.get(p) || []) {
@@ -175,8 +181,8 @@ function sectionProfiles(d, periods, geo) {
   return out.sort((p, q) => p.x - q.x);
 }
 
-function sectionColumns(profiles, v) {
-  const depths = hSrc().depths;
+function sectionColumns(profiles, v, src = hSrc()) {
+  const depths = src.depths;
   if (v.geostrophic) {                // geostrophic velocity between neighbouring stations
     const k500 = depths.indexOf(SECTION_DEPTH), cols = [];
     for (let i = 1; i < profiles.length; i++) {
@@ -233,7 +239,9 @@ function sectionScale(values, fixed, v) {
   if (fixed) ({ lo, hi } = fixed);
   if (v.diverging) { const m = Math.max(Math.abs(lo), Math.abs(hi), 0.1); lo = -m; hi = m; }
   if (!(hi > lo)) hi = lo + 0.01;
-  const { levels, step } = v.log ? logLevels(lo, hi, v.anomaly) : niceLevels(lo, hi);
+  // v.step: contours at that interval (the EDA sections: every 10% on 0-100%).
+  const { levels, step } = v.step ? { levels: Array.from({ length: Math.round((hi - lo) / v.step) + 1 }, (_, i) => lo + i * v.step), step: v.step }
+    : v.log ? logLevels(lo, hi, v.anomaly) : niceLevels(lo, hi);
   const style = HYDRO_STYLES[v.style], n = levels.length - 1, a = levels[0], b = levels[n];
   const stops = v.anomaly ? ANOMALY_STYLES[v.style] : v.diverging ? ANOMALY_STYLES.salinity : style.stops;
   const smooth = v.diverging ? true : style.smooth;
@@ -317,18 +325,30 @@ async function renderSection() {
   }
   if (!v) { sCur = null; showSectionMessage(hView() === "watermass" ? "Sections show the water-mass fractions: choose PSA, PEW or NPCW." : `No section for ${hLabel().toLowerCase()}${hView() === "anomaly" ? ": sections show the variables at a depth (temperature, salinity, density, oxygen, nitrate, silicate, stability, water-mass fractions)" : ""}.`); return; }
   if (!geo) { sCur = null; showSectionMessage(`No ${hSourceWord()} stations on line ${sstate.line}.`); return; }
-  let profiles = sectionProfiles(d, periods, geo);
-  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods);
-  const cols = sectionColumns(profiles, v);
-  if (cols.length < 2) {
+  const fixed = hstate.scale !== "floating" ? sectionRange(d, geo, v) : null;
+  const sec = computeSection(d, geo, v, periods, fixed);
+  if (!sec.ok) {
     sCur = null;
-    showSectionMessage(v.anomaly && profiles.length >= 2
+    showSectionMessage(v.anomaly && sec.profiles.length >= 2
       ? `Too few of line ${sstate.line}'s stations sampled in ${when || "this period"} have a climatology (${ANOMALY_MIN_YEARS}+ years of ${hSourceWord()} data) for an anomaly section.`
-      : `Line ${sstate.line} was not sampled${cols.length ? " at enough stations" : ""} in ${when || "this period"} (${hSourceWord()}).`);
+      : `Line ${sstate.line} was not sampled${sec.cols.length ? " at enough stations" : ""} in ${when || "this period"} (${hSourceWord()}).`);
     return;
   }
+  sCur = { ...sec, when };
+  drawSection();
+}
+
+// The section for these survey months: profiles, the gridded image, contour
+// lines and labels in (distance, depth). { ok: false, profiles, cols } when
+// fewer than two stations have values. fixed: the colour range, or null for a
+// scale fitted to this section. Used by the map's section panel and the EDA
+// view's water-mass sections.
+function computeSection(d, geo, v, periods, fixed, src = hSrc()) {
+  let profiles = sectionProfiles(d, periods, geo, src);
+  if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods);
+  const cols = sectionColumns(profiles, v, src);
+  if (cols.length < 2) return { ok: false, profiles, cols };
   const values = sectionValues(cols);
-  const fixed = hstate.scale !== "floating" ? sectionRange(d, geo, v) : null;
   const scale = sectionScale(values, fixed, v);
   const grid = sectionGrid(cols, geo.xmax, sectionDepth(v));
   // image, x = distance (left to right), y = depth
@@ -376,14 +396,13 @@ async function renderSection() {
       labels.push({ km: toKm(x), z: toZ(y), t: sFmt(c.value, v) });
     }
   }
-  sCur = {
-    v, geo, scale, grid, values, when,
+  return {
+    ok: true, v, geo, scale, grid, values,
     image: canvas.toDataURL(),
     mask: ringsKm(mask.coordinates.flat()),
     lines: lines.map((c) => ({ value: c.value, rings: ringsKm(c.coordinates.flat()) })),
     labels, sampled: new Set(profiles.map((p) => p.st)),
   };
-  drawSection();
 }
 
 // The depth (m) or depth interval [top, bottom] the map shows, for the
@@ -404,39 +423,57 @@ function showSectionMessage(text) {
 // line, fitted from the map positions of the line's stations.
 function drawSection() {
   if (!sCur || !sectionShown()) return;
-  const { v, geo, scale, grid, labels } = sCur;
-  const D = sectionDepth(v);
-  const box = $("section-chart");
-  const W = box.clientWidth || 600, H = Math.max(140, (box.clientHeight || 260) - 30);   // less the note lines
+  drawSectionSVG($("section-chart"), sCur, { fit: "map", id: "sec", line: sstate.line, mapDepth: true, note: true });
+}
+
+// Draw a computed section (computeSection) into box. opts: fit "map" (the
+// map's scale along the line, as below) or "width" (the line fills the box);
+// id (prefix for the SVG's clip paths, unique per section on the page); line;
+// mapDepth (highlight the map's depth); note (the scale note under it).
+function drawSectionSVG(box, sec, opts) {
+  const { v, geo, scale, grid, labels } = sec;
+  const D = sectionDepth(v), id = opts.id;
+  const W = box.clientWidth || 600, H = Math.max(110, (box.clientHeight || 260) - (opts.note ? 30 : 0));   // less the note lines
   const m = { l: 60, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
   // the map's horizontal scale along the line (screen x against distance along
   // it, fitted over the stations), not its position: the section is as wide as
   // the line is across the map, coast at the plot's right edge, offshore end
   // clipped if the map is zoomed in past the panel's width
-  const pts = geo.stations.map((s) => [geo.x.get(s.i), map.project([s.lon, s.lat]).x]);
-  const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
-  const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
   const R = W - m.r, maxW = R - m.l;
-  const b = -Math.abs(sxx > 0 ? sxy / sxx : maxW / geo.xmax), a0 = R;
+  let b = -maxW / geo.xmax;
+  if (opts.fit === "map") {
+    const pts = geo.stations.map((s) => [geo.x.get(s.i), map.project([s.lon, s.lat]).x]);
+    const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
+    const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
+    b = -Math.abs(sxx > 0 ? sxy / sxx : maxW / geo.xmax);
+  }
+  const a0 = R;
   m.l = R - Math.min(maxW, -b * geo.xmax);
   const px = (km) => a0 + b * km, py = (z) => m.t + (z / D) * ph;
   const path = (rings) => rings.map((r) => "M" + r.map(([x, z]) => `${x.toFixed(2)},${py(z).toFixed(1)}`).join("L")).join("");
   const font = 'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"';
   const parts = [];
-  parts.push(`<defs><clipPath id="sec-window"><rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${ph}"/></clipPath>` +
-    `<clipPath id="sec-data" clipPathUnits="userSpaceOnUse"><path d="${path(sCur.mask)}Z"/></clipPath></defs>`);
+  parts.push(`<defs><clipPath id="${id}-window"><rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${ph}"/></clipPath>` +
+    `<clipPath id="${id}-data" clipPathUnits="userSpaceOnUse"><path d="${path(sec.mask)}Z"/></clipPath></defs>`);
   parts.push(`<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${ph}" fill="#d9d7cf"/>`);
   // data, drawn in (km, screen y) and mapped to screen x by the fit
-  parts.push(`<g clip-path="url(#sec-window)"><g transform="matrix(${b} 0 0 1 ${a0} 0)">`);
-  parts.push(`<image href="${sCur.image}" x="0" y="${m.t}" width="${geo.xmax}" height="${ph}" preserveAspectRatio="none"/>`);
-  for (const c of sCur.lines) {
+  parts.push(`<g clip-path="url(#${id}-window)"><g transform="matrix(${b} 0 0 1 ${a0} 0)">`);
+  parts.push(`<image href="${sec.image}" x="0" y="${m.t}" width="${geo.xmax}" height="${ph}" preserveAspectRatio="none"/>`);
+  for (const c of sec.lines) {
     const zero = v.diverging && Math.abs(c.value) < 1e-9;
-    parts.push(`<path d="${path(c.rings)}" fill="none" stroke="${scale.line}" stroke-opacity="0.85" stroke-width="${zero ? 1.8 : 0.8}" vector-effect="non-scaling-stroke" clip-path="url(#sec-data)"/>`);
+    parts.push(`<path d="${path(c.rings)}" fill="none" stroke="${scale.line}" stroke-opacity="0.85" stroke-width="${zero ? 1.8 : 0.8}" vector-effect="non-scaling-stroke" clip-path="url(#${id}-data)"/>`);
   }
   parts.push("</g>");
+  // Water-mass fractions: the surface layer greyed out (see WM_SURFACE_M).
+  if (v.surface) {
+    const y1 = py(v.surface);
+    parts.push(`<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${y1 - m.t}" fill="#d9d7cf" opacity="0.94"/>`);
+    if (y1 - m.t >= 11) parts.push(`<text x="${m.l + 8}" y="${(m.t + y1) / 2 + 3.5}" font-size="10" fill="#5b5a55" ${font}>0–${v.surface} m not shown: the OMP analysis is not valid in surface water</text>`);
+  }
   // contour labels, kept apart
   const placed = [];
   for (const l of labels) {
+    if (v.surface && l.z < v.surface + 8) continue;       // not in (or on the edge of) the greyed surface layer
     const X = px(l.km), Y = py(l.z);
     if (X < m.l + 12 || X > W - m.r - 12 || placed.some((q) => Math.hypot(q[0] - X, q[1] - Y) < 30)) continue;
     placed.push([X, Y]);
@@ -446,7 +483,7 @@ function drawSection() {
   parts.push("</g>");
   // axes: depth (left), with the map's depth (or depth interval) highlighted
   const tick = 'font-size="11" fill="#5b5a55"';
-  const md = mapDepth(), mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
+  const md = opts.mapDepth ? mapDepth() : null, mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
   for (let z = 0; z <= D; z += D <= 200 ? 50 : 100) {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
     if (mark && py(z) > mark.y0 - 6 && py(z) < mark.y1 + 6) continue;      // under the highlight
@@ -473,21 +510,21 @@ function drawSection() {
     parts.push(`<line x1="${X}" x2="${X}" y1="${m.t + ph}" y2="${m.t + ph + 4}" stroke="#85837c"/>`);
     parts.push(`<text x="${X}" y="${m.t + ph + 16}" text-anchor="middle" ${tick} ${font}>${km}</text>`);
   }
-  parts.push(`<text x="${m.l + (W - m.l - m.r) / 2}" y="${H - 3}" text-anchor="middle" ${tick} ${font}>distance from the inshore end of line ${sstate.line} (km)</text>`);
+  parts.push(`<text x="${m.l + (W - m.l - m.r) / 2}" y="${H - 3}" text-anchor="middle" ${tick} ${font}>distance from the inshore end of line ${opts.line} (km)</text>`);
   // stations (top)
   parts.push(`<text x="${m.l}" y="${m.t - 19}" text-anchor="start" ${tick} ${font}>station</text>`);
   let lastX = Infinity;
   for (const s of geo.stations.slice().sort((p, q) => px(geo.x.get(q.i)) - px(geo.x.get(p.i)))) {
     const X = px(geo.x.get(s.i));
     if (X < m.l || X > W - m.r) continue;
-    const on = sCur.sampled.has(s.i);
+    const on = sec.sampled.has(s.i);
     parts.push(`<path d="M${X} ${m.t - 1} l-3.5 -6 h7 Z" fill="${on ? "#1f1e1c" : "#c9c7bf"}"/>`);
     if (on && lastX - X > 24 && X > m.l + 52) { parts.push(`<text x="${X}" y="${m.t - 10}" text-anchor="middle" font-size="10" fill="#5b5a55" ${font}>${+s.station.toFixed(1)}</text>`); lastX = X; }
   }
   // vertical colour bar (right)
   parts.push(verticalColourBar(scale, W - m.r + 16, m.t, ph, v, font));
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Section">${parts.join("")}</svg>` +
-    `<p class="section-note">${sectionNote(scale, v)}</p>`;
+    (opts.note ? `<p class="section-note">${sectionNote(scale, v)}</p>` : "");
   // value under the cursor
   const svg = box.querySelector("svg");
   const tip = document.createElement("div");
@@ -498,7 +535,8 @@ function drawSection() {
     const r = svg.getBoundingClientRect(), X = e.clientX - r.left, Y = e.clientY - r.top;
     const km = (X - a0) / b, z = ((Y - m.t) / ph) * D;
     const i = Math.round((km / geo.xmax) * (grid.nx - 1)), j = Math.round((z / D) * (grid.nz - 1));
-    const val = X >= m.l && X <= W - m.r && i >= 0 && j >= 0 && i < grid.nx && j < grid.nz ? grid.g[j * grid.nx + i] : NaN;
+    const val = X >= m.l && X <= W - m.r && i >= 0 && j >= 0 && i < grid.nx && j < grid.nz && !(v.surface && z < v.surface)
+      ? grid.g[j * grid.nx + i] : NaN;
     if (!Number.isFinite(val)) { tip.hidden = true; return; }
     tip.hidden = false;
     tip.textContent = `${sFmt(val, v, v.diverging ? (v.anomaly ? 2 : 1) : 3)}${v.units ? ` ${v.units}` : ""} · ${Math.round(z)} m · ${Math.round(km)} km`;
@@ -547,11 +585,13 @@ function sectionNote(scale, v) {
     const season = hstate.scale === "season" ? `, ${hShownSeason()}` : "";
     return `Fixed scale, ${range}${units}: it covers every value in the ${scale.maps} sections of ${hstate.compare.join("–")}${season}, ` +
       `so those sections share colours; ${contours}. Grey: no data (below the deepest sample).` +
-      (v.anomaly ? ` Anomalies from each station's harmonic seasonal cycle at each depth (${ANOMALY_MIN_YEARS}+ years).` : "");
+      (v.anomaly ? ` Anomalies from each station's harmonic seasonal cycle at each depth (${ANOMALY_MIN_YEARS}+ years).` : "") +
+      (v.surface ? ` Top ${v.surface} m greyed: the OMP analysis is not valid in surface water.` : "");
   }
   const clim = v.anomaly ? ` Anomalies from each station's harmonic seasonal cycle (annual + semi-annual) at each depth, fitted to ` +
     `${hSrc().years[0]}–${hSrc().years[1]} (${ANOMALY_MIN_YEARS}+ years); grey also where there is no climatology.` : "";
-  return `Scale fitted to this section, ${range}${units}${v.diverging ? (v.log ? ", symmetric about normal (×1)" : ", symmetric about zero") : ""}; ${contours}. Grey: no data (below the deepest sample)${v.maxDepth ? `; the section stops at ${v.maxDepth} m` : ""}.${clim}`;
+  const surface = v.surface ? ` Top ${v.surface} m greyed: the OMP analysis is not valid in surface water.` : "";
+  return `Scale fitted to this section, ${range}${units}${v.diverging ? (v.log ? ", symmetric about normal (×1)" : ", symmetric about zero") : ""}; ${contours}. Grey: no data (below the deepest sample)${v.maxDepth ? `; the section stops at ${v.maxDepth} m` : ""}.${clim}${surface}`;
 }
 
 function addSectionLayers() {

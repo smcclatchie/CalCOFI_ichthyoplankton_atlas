@@ -380,6 +380,27 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .eda-mode .ternary-panel { z-index: 30; inset: 0; border-radius: 0; box-shadow: none; }
 .eda-mode .controls label:has(#bathy-toggle) { display: none; }
 #eda-toggle { flex-direction: column; }
+/* EDA water-mass sections: the panel fills the map area; three sections share its height, so they and the
+   stepper fit on one screen. */
+.eda-sections { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 14px 8px; background: var(--surface, #fff); }
+.eda-sections[hidden] { display: none; }
+.eda-sections header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.eda-sections h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.eda-sections header > button { margin-left: auto; border: 0; background: none; font-size: 16px; cursor: pointer; color: var(--text-secondary); }
+.eda-sec-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; font-size: 13px; }
+.eda-sec-controls label { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); }
+.eda-sec-controls .segmented button { padding: 3px 10px; font-size: 12px; }
+.eda-sec-controls .stepper { display: flex; gap: 4px; }
+.eda-sec-controls .stepper button { padding: 3px 8px; font-size: 12px; }
+#eda-sec-range { flex: 1; min-width: 160px; }
+.eda-sec-when { font-weight: 600; min-width: 13em; }
+#eda-sec-charts { flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(3, 1fr); gap: 2px; }
+.eda-sec-chart { position: relative; min-height: 0; display: flex; flex-direction: column; }
+.eda-sec-chart h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.eda-sec-plot { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.eda-sec-plot svg { display: block; }
+#eda-sec-note { margin: 0; font-size: 11px; }
 #eda-toggle button { white-space: normal; text-align: left; }
 .ternary-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .ternary-panel h2 { margin: 0; font-size: 14px; font-weight: 600; }
