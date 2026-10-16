@@ -169,7 +169,7 @@ async function renderEdaHeat() {
     `station's harmonic seasonal cycle at each depth (${ANOMALY_MIN_YEARS}+ years). Heatwaves (Hobday et al. 2016, seasonal): above the 90th percentile of ` +
     `the calendar season, ${baseline[0]}–${baseline[1]} baseline${nSeasons < 4 ? ` (${4 - nSeasons} season(s) with too few baseline years: none flagged)` : ""}; ` +
     `bars coloured by category; ◆ = non-ENSO (RONI below +0.5). Sections: temperature anomaly, 0–${HEAT_DEPTH} m, on one scale (±${top} °C). ` +
-    `Dotted lines A, B, C: the seasons in the panels below; click the time series to show a season in the outlined panel (click a panel's title to choose it).`;
+    `Dotted lines A, B, C: the seasons in the panels below; drag one to another season, or click the time series to move the outlined panel's (click a panel's title to outline it).`;
 }
 
 function nearestHeatKey(steps, key) {
@@ -237,33 +237,54 @@ function drawHeatChart(series, src) {
   for (const q of marks) {
     const tx = Math.max(q.x, lastTag + 17);
     lastTag = tx;
+    // one group per marker, so a drag moves it whole; a wide invisible line makes it easy to grab
+    parts.push(`<g class="heat-mark" data-n="${q.n}" data-x="${q.x}" style="cursor:ew-resize">`);
+    parts.push(`<line x1="${q.x}" x2="${q.x}" y1="${m.t - 19}" y2="${H - m.b}" stroke="transparent" stroke-width="12"/>`);
     parts.push(`<line x1="${q.x}" x2="${q.x}" y1="${m.t}" y2="${H - m.b}" stroke="#2a78d6" stroke-width="1.2" stroke-dasharray="3 2"/>`);
     if (tx !== q.x) parts.push(`<line x1="${q.x}" x2="${tx}" y1="${m.t}" y2="${m.t - 5}" stroke="#2a78d6"/>`);
     parts.push(`<rect x="${tx - 7}" y="${m.t - 19}" width="14" height="14" rx="3" fill="#2a78d6"/>`);
     parts.push(`<text x="${tx}" y="${m.t - 8}" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff" ${font}>${"ABC"[q.n]}</text>`);
+    parts.push(`<text class="heat-mark-when" x="${tx + 11}" y="${m.t - 8}" font-size="10" fill="#2a78d6" ${font}></text>`);
+    parts.push("</g>");
   }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Heat content anomaly and RONI">${parts.join("")}</svg>`;
-  const svg = box.querySelector("svg"), tip = document.createElement("div");
-  tip.className = "chart-tip"; tip.hidden = true; box.appendChild(tip);
-  const nearest = (e) => {
-    const r = svg.getBoundingClientRect(), t = x0 + ((e.clientX - r.left - m.l) / (W - m.l - m.r)) * (x1 - x0);
+  // No hover pop-up (user, 2026-10-17: it hid the data). Drag a marker (its line or tag)
+  // to another season: it snaps to the nearest season, named beside its tag in the top
+  // margin, and its panel follows on release. A click elsewhere moves the outlined
+  // panel's marker there.
+  const svg = box.querySelector("svg");
+  const seasonAt = (e, any) => {
+    const r = svg.getBoundingClientRect(), X = ((e.clientX - r.left) / r.width) * W;
+    const t = x0 + ((X - m.l) / (W - m.l - m.r)) * (x1 - x0);
     const best = series.reduce((b, s) => (Math.abs(s.t - t) < Math.abs(b.t - t) ? s : b));
-    return Math.abs(best.t - t) < 0.4 ? best : null;
+    return any || Math.abs(best.t - t) < 0.4 ? best : null;
   };
-  svg.addEventListener("mousemove", (e) => {
-    const s = nearest(e);
-    if (!s) { tip.hidden = true; return; }
-    tip.hidden = false;
-    tip.textContent = `${seasonText(s)}: ${signedValue(+s.hc.toFixed(2))} GJ m⁻² (${s.n} stations) · RONI ${s.roni === null ? "–" : signedValue(s.roni)}` +
-      (s.scti !== null ? ` · SCTI ${signedValue(s.scti)}` : "") + (s.cat ? ` · ${MHW_CATEGORIES[s.cat].name} heatwave${s.nonEnso ? ", non-ENSO" : ""}` : "");
-    const r = svg.getBoundingClientRect();
-    tip.style.left = `${Math.min(r.width - tip.offsetWidth - 4, Math.max(4, sx(s.t) - tip.offsetWidth / 2))}px`;
-    tip.style.top = `${m.t}px`;
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => {
+    const g = e.target.closest(".heat-mark");
+    if (!g) return;
+    e.preventDefault();
+    svg.setPointerCapture(e.pointerId);
+    drag = { g, n: +g.dataset.n, x: +g.dataset.x, season: null };
+    heat.focus = drag.n;
+    markHeatFocus();
   });
-  svg.addEventListener("mouseleave", () => { tip.hidden = true; });
-  svg.style.cursor = "pointer";
-  svg.addEventListener("click", (e) => {
-    const s = nearest(e);
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const s = seasonAt(e, true);
+    drag.season = s;
+    drag.g.setAttribute("transform", `translate(${sx(s.t) - drag.x} 0)`);
+    drag.g.querySelector(".heat-mark-when").textContent = seasonText(s).replace(/ \(.*\)$/, "");
+  });
+  svg.addEventListener("pointerup", (e) => {
+    if (drag) {
+      const d = drag;
+      drag = null;
+      if (d.season && d.season.key !== heat.panels[d.n]) { heat.panels[d.n] = d.season.key; renderEdaHeat(); writeHash(); }
+      else d.g.removeAttribute("transform");
+      return;
+    }
+    const s = seasonAt(e, false);
     if (!s) return;
     heat.panels[heat.focus] = s.key;
     renderEdaHeat();
