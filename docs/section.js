@@ -207,7 +207,7 @@ function sectionColumns(profiles, v, src = hSrc()) {
       const z = v.interval ? (depths[k] + depths[k + 1]) / 2 : depths[k];    // N2: the middle of its interval
       if (Number.isFinite(z) && !(v.maxDepth && z > v.maxDepth)) pts.push([z, val]);     // chlorophyll: 0-200 m
     });
-    return { x: p.x, pts };
+    return { x: p.x, pts, st: p.st };
   }).filter((c) => c.pts.length);
 }
 
@@ -255,9 +255,9 @@ function sectionScale(values, fixed, v) {
     below: Math.min(...values) < a, above: Math.max(...values) > b, line: v.diverging ? "#1f1e1c" : style.line };
 }
 
-// Grid in (distance along the line, depth).
-function sectionGrid(cols, xmax, depth = SECTION_DEPTH, nx = 300, nz = 126) {
-  const zAt = (j) => (j / (nz - 1)) * depth, xAt = (i) => (i / (nx - 1)) * xmax;
+// Grid in (distance along the line, depth) over [x0, x1] km (the section's own extent).
+function sectionGrid(cols, x0, x1, depth = SECTION_DEPTH, nx = 300, nz = 126) {
+  const zAt = (j) => (j / (nz - 1)) * depth, xAt = (i) => x0 + (i / (nx - 1)) * (x1 - x0);
   const colVals = cols.map((c) => {
     const v = new Float64Array(nz).fill(NaN), pts = c.pts;
     for (let j = 0; j < nz; j++) {
@@ -280,7 +280,7 @@ function sectionGrid(cols, xmax, depth = SECTION_DEPTH, nx = 300, nz = 126) {
     const k = cols.findIndex((c) => c.x >= x);
     if (k < 0) continue;
     if (k === 0) {
-      if (Math.abs(cols[0].x - x) <= xmax / (nx - 1)) for (let j = 0; j < nz; j++) g[j * nx + i] = colVals[0][j];
+      if (Math.abs(cols[0].x - x) <= (x1 - x0) / (nx - 1)) for (let j = 0; j < nz; j++) g[j * nx + i] = colVals[0][j];
       continue;
     }
     const a = cols[k - 1], b = cols[k];
@@ -350,12 +350,16 @@ function computeSection(d, geo, v, periods, fixed, src = hSrc()) {
   if (v.anomaly) profiles = sectionAnomalies(d, profiles, v, periods);
   const cols = sectionColumns(profiles, v, src);
   if (cols.length < 2) return { ok: false, profiles, cols };
-  // v.fitDepth: the depth axis ends at the deepest value in this section (the
-  // EDA sections, 2026-10-17: CTD seasons often stop short of 400 m).
-  if (v.fitDepth) v = { ...v, maxDepth: Math.max(50, ...cols.flatMap((c) => c.pts.map((pt) => pt[0]))) };
+  // Both axes follow the data (2026-10-17, user, every section view): the depth
+  // axis ends at the section's deepest value (CTD seasons often stop short of
+  // 400 m), and the distance axis spans the stations sampled, padded a little,
+  // instead of the line's whole regular extent -- the most detail in the plot.
+  v = { ...v, maxDepth: Math.max(50, ...cols.flatMap((c) => c.pts.map((pt) => pt[0]))) };
+  const xs = cols.map((c) => c.x), pad = Math.max(5, 0.02 * (Math.max(...xs) - Math.min(...xs)));
+  const x0 = Math.max(0, Math.min(...xs) - pad), x1 = Math.max(...xs) + pad;
   const values = sectionValues(cols);
   const scale = sectionScale(values, fixed, v);
-  const grid = sectionGrid(cols, geo.xmax, sectionDepth(v));
+  const grid = sectionGrid(cols, x0, x1, sectionDepth(v));
   // image, x = distance (left to right), y = depth
   const canvas = document.createElement("canvas");
   canvas.width = grid.nx; canvas.height = grid.nz;
@@ -384,7 +388,7 @@ function computeSection(d, geo, v, periods, fixed, src = hSrc()) {
   const fmin = Math.min(...values) - Math.abs(Math.max(...values) - Math.min(...values)) - 1;
   for (let k = 0; k < filled.length; k++) if (!Number.isFinite(filled[k])) filled[k] = fmin;
   // grid coordinates -> (km, depth m)
-  const toKm = (x) => ((x - 0.5) / (grid.nx - 1)) * geo.xmax, toZ = (y) => ((y - 0.5) / (grid.nz - 1)) * sectionDepth(v);
+  const toKm = (x) => x0 + ((x - 0.5) / (grid.nx - 1)) * (x1 - x0), toZ = (y) => ((y - 0.5) / (grid.nz - 1)) * sectionDepth(v);
   const ringsKm = (rings) => rings.map((ring) => ring.map(([x, y]) => [toKm(x), toZ(y)]));
   const mask = d3.contours().size([grid.nx, grid.nz]).thresholds([0.5])(Array.from(grid.g, (q) => (Number.isFinite(q) ? 1 : 0)))[0];
   const eps = scale.step * 1e-6;       // flat at a level (e.g. 100% of a water mass): no rounding-error rings (as hydroGeometry)
@@ -402,11 +406,12 @@ function computeSection(d, geo, v, periods, fixed, src = hSrc()) {
     }
   }
   return {
-    ok: true, v, geo, scale, grid, values,
+    ok: true, v, geo, scale, grid, values, x0, x1,
     image: canvas.toDataURL(),
     mask: ringsKm(mask.coordinates.flat()),
     lines: lines.map((c) => ({ value: c.value, rings: ringsKm(c.coordinates.flat()) })),
-    labels, sampled: new Set(profiles.map((p) => p.st)),
+    // the stations with values of this variable (geostrophic columns sit between stations: their profiles)
+    labels, sampled: new Set(v.geostrophic ? profiles.map((p) => p.st) : cols.map((c) => c.st)),
   };
 }
 
@@ -436,24 +441,25 @@ function drawSection() {
 // id (prefix for the SVG's clip paths, unique per section on the page); line;
 // mapDepth (highlight the map's depth); note (the scale note under it).
 function drawSectionSVG(box, sec, opts) {
-  const { v, geo, scale, grid, labels } = sec;
+  const { v, geo, scale, grid, labels, x0, x1 } = sec, span = x1 - x0;
   const D = sectionDepth(v), id = opts.id;
   const W = box.clientWidth || 600, H = Math.max(110, (box.clientHeight || 260) - (opts.note ? 30 : 0));   // less the note lines
   const m = { l: 60, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
   // the map's horizontal scale along the line (screen x against distance along
   // it, fitted over the stations), not its position: the section is as wide as
-  // the line is across the map, coast at the plot's right edge, offshore end
-  // clipped if the map is zoomed in past the panel's width
+  // the sampled stations are across the map, its inshore end at the plot's right
+  // edge, offshore end clipped if the map is zoomed in past the panel's width
   const R = W - m.r, maxW = R - m.l;
-  let b = -maxW / geo.xmax;
+  let b = -maxW / span;
   if (opts.fit === "map") {
     const pts = geo.stations.map((s) => [geo.x.get(s.i), map.project([s.lon, s.lat]).x]);
     const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
     const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
-    b = -Math.abs(sxx > 0 ? sxy / sxx : maxW / geo.xmax);
+    b = -Math.abs(sxx > 0 ? sxy / sxx : maxW / span);
   }
-  const a0 = R;
-  m.l = R - Math.min(maxW, -b * geo.xmax);
+  // the section's inshore end (x0) at the plot's right edge
+  const a0 = R - b * x0;
+  m.l = R - Math.min(maxW, -b * span);
   const px = (km) => a0 + b * km, py = (z) => m.t + (z / D) * ph;
   const path = (rings) => rings.map((r) => "M" + r.map(([x, z]) => `${x.toFixed(2)},${py(z).toFixed(1)}`).join("L")).join("");
   const font = 'font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"';
@@ -463,7 +469,7 @@ function drawSectionSVG(box, sec, opts) {
   parts.push(`<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${ph}" fill="#d9d7cf"/>`);
   // data, drawn in (km, screen y) and mapped to screen x by the fit
   parts.push(`<g clip-path="url(#${id}-window)"><g transform="matrix(${b} 0 0 1 ${a0} 0)">`);
-  parts.push(`<image href="${sec.image}" x="0" y="${m.t}" width="${geo.xmax}" height="${ph}" preserveAspectRatio="none"/>`);
+  parts.push(`<image href="${sec.image}" x="${x0}" y="${m.t}" width="${span}" height="${ph}" preserveAspectRatio="none"/>`);
   for (const c of sec.lines) {
     const zero = v.diverging && Math.abs(c.value) < 1e-9;
     parts.push(`<path d="${path(c.rings)}" fill="none" stroke="${scale.line}" stroke-opacity="0.85" stroke-width="${zero ? 1.8 : 0.8}" vector-effect="non-scaling-stroke" clip-path="url(#${id}-data)"/>`);
@@ -488,7 +494,7 @@ function drawSectionSVG(box, sec, opts) {
   parts.push("</g>");
   // axes: depth (left), with the map's depth (or depth interval) highlighted
   const tick = 'font-size="11" fill="#5b5a55"';
-  const md = opts.mapDepth ? mapDepth() : null, mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
+  const md0 = opts.mapDepth ? mapDepth() : null, md = md0 && md0[0] <= D ? md0 : null, mark = md && { y0: py(md[0]) - (md[0] === md[1] ? 8 : 0), y1: py(md[1]) + (md[0] === md[1] ? 8 : 0) };
   for (let z = 0; z <= D; z += D <= 300 ? 50 : 100) {
     parts.push(`<line x1="${m.l - 4}" x2="${m.l}" y1="${py(z)}" y2="${py(z)}" stroke="#85837c"/>`);
     if (mark && py(z) > mark.y0 - 6 && py(z) < mark.y1 + 6) continue;      // under the highlight
@@ -509,7 +515,7 @@ function drawSectionSVG(box, sec, opts) {
   parts.push(`<text transform="translate(${m.l - 48} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${tick} ${font}>depth (m)</text>`);
   // distance (bottom)
   const step = Math.abs(b) * 100 < 40 ? 200 : 100;
-  for (let km = 0; km <= geo.xmax; km += step) {
+  for (let km = Math.ceil(x0 / step) * step; km <= x1; km += step) {
     const X = px(km);
     if (X < m.l || X > W - m.r) continue;
     parts.push(`<line x1="${X}" x2="${X}" y1="${m.t + ph}" y2="${m.t + ph + 4}" stroke="#85837c"/>`);
@@ -539,7 +545,7 @@ function drawSectionSVG(box, sec, opts) {
   svg.addEventListener("mousemove", (e) => {
     const r = svg.getBoundingClientRect(), X = e.clientX - r.left, Y = e.clientY - r.top;
     const km = (X - a0) / b, z = ((Y - m.t) / ph) * D;
-    const i = Math.round((km / geo.xmax) * (grid.nx - 1)), j = Math.round((z / D) * (grid.nz - 1));
+    const i = Math.round(((km - x0) / span) * (grid.nx - 1)), j = Math.round((z / D) * (grid.nz - 1));
     const val = X >= m.l && X <= W - m.r && i >= 0 && j >= 0 && i < grid.nx && j < grid.nz && !(v.surface && z < v.surface)
       ? grid.g[j * grid.nx + i] : NaN;
     if (!Number.isFinite(val)) { tip.hidden = true; return; }
