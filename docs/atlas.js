@@ -1223,20 +1223,20 @@ async function setLayer(choice, viewDataset) {
 
 // EDA (exploratory data analysis) view, 2026-10-16: analyses that aren't maps
 // (the ternary plots: the warm/cool one moved here from the Water masses view,
-// the anchovy one added 2026-10-16). It sits over whichever map view was
+// the krill one added 2026-10-16, replacing an anchovy one). It sits over whichever map view was
 // showing, which comes back when it closes. Each plot lives at a fixed
 // Firebase address (Fishing Maps repo, upload_calcofi_ternary.py).
 let edaOpen = false, edaPlot = "ternary";
 const TERNARY_PLOTS = {
   ternary: {
     src: "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0",
-    title: "Water-mass composition vs. warm/cool-water ichthyoplankton, winter, core stations",
-    hint: "Each core station in each winter, placed by the strength of Pacific Subarctic, Pacific Equatorial and North Pacific Central water at each one's own core depth (peak OMP fractions, 30–400 m, bottle data), against the warm- and cool-water indicator larvae caught there in the bongo net, year by year.",
+    title: "Water-mass composition vs. warm/cool-water ichthyoplankton, winter and spring, core stations",
+    hint: "Each core station in each winter (left) and spring (right), stepping together, placed by the strength of Pacific Subarctic, Pacific Equatorial and North Pacific Central water at each one's own core depth (peak OMP fractions, 30–400 m, bottle data), against the warm- and cool-water indicator larvae caught there in the bongo net, year by year.",
   },
-  anchovy: {
-    src: "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary_anchovy.html?alt=media&token=cb1f6620-a8d2-4d9f-ab16-b4be0228f3e2",
-    title: "Water-mass composition vs. northern anchovy larvae and eggs, every season, core stations",
-    hint: "Each core station in each season, placed by the strength of Pacific Subarctic, Pacific Equatorial and North Pacific Central water at each one's own core depth (peak OMP fractions, 30–400 m, bottle data), against the northern anchovy larvae and eggs caught there in the bongo net, season by season.",
+  krill: {
+    src: "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary_krill.html?alt=media&token=f28619bb-0464-41a1-b010-d10f28a4685f",
+    title: "Water-mass composition vs. cool, warm-central and warm-equatorial krill, winter and spring, core stations",
+    hint: "Each core station in each winter (left) and spring (right), stepping together, placed by the strength of Pacific Subarctic, Pacific Equatorial and North Pacific Central water at each one's own core depth (peak OMP fractions, 30–400 m, bottle data), against the adult krill of three groups caught there: cool-water, warm-central (central-gyre) and warm-equatorial species.",
   },
 };
 function setEda(open, plot = edaPlot) {
