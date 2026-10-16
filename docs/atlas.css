@@ -379,6 +379,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .eda-mode .controls > .control.eda-only { display: block; }
 .eda-mode .ternary-panel { z-index: 30; inset: 0; border-radius: 0; box-shadow: none; }
 .eda-mode .controls label:has(#bathy-toggle) { display: none; }
+#eda-toggle { flex-direction: column; }
 #eda-toggle button { white-space: normal; text-align: left; }
 .ternary-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .ternary-panel h2 { margin: 0; font-size: 14px; font-weight: 600; }

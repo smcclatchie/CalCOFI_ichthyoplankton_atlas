@@ -1222,13 +1222,27 @@ async function setLayer(choice, viewDataset) {
 }
 
 // EDA (exploratory data analysis) view, 2026-10-16: analyses that aren't maps
-// (for now the ternary plot, moved here from the Water masses view). It sits
-// over whichever map view was showing, which comes back when it closes.
-let edaOpen = false;
-const TERNARY_SRC = "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0";
-function setEda(open) {
+// (the ternary plots: the warm/cool one moved here from the Water masses view,
+// the anchovy one added 2026-10-16). It sits over whichever map view was
+// showing, which comes back when it closes. Each plot lives at a fixed
+// Firebase address (Fishing Maps repo, upload_calcofi_ternary.py).
+let edaOpen = false, edaPlot = "ternary";
+const TERNARY_PLOTS = {
+  ternary: {
+    src: "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0",
+    title: "Water-mass composition vs. warm/cool-water ichthyoplankton, winter, core stations",
+    hint: "Winter water-mass composition (Pacific Subarctic, Pacific Equatorial and North Pacific Central waters; OMP analysis of bottle data) at each core station, against the warm- and cool-water indicator larvae caught there, year by year.",
+  },
+  anchovy: {
+    src: "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary_anchovy.html?alt=media&token=cb1f6620-a8d2-4d9f-ab16-b4be0228f3e2",
+    title: "Water-mass composition vs. northern anchovy larvae and eggs, every season, core stations",
+    hint: "Water-mass composition (Pacific Subarctic, Pacific Equatorial and North Pacific Central waters; OMP analysis of bottle data) at each core station in every season, against the northern anchovy larvae and eggs caught there in the bongo net, season by season.",
+  },
+};
+function setEda(open, plot = edaPlot) {
   stopPlay();
   edaOpen = open;
+  edaPlot = plot;
   updateLayerControls();
   writeHash();
 }
@@ -1239,7 +1253,12 @@ function updateLayerControls() {
   document.querySelector(".layout").classList.toggle("eda-mode", edaOpen);
   document.querySelectorAll(".eda-only").forEach((e) => { e.hidden = !edaOpen; });
   $("ternary-panel").hidden = !edaOpen;
-  if (edaOpen && !$("ternary-frame").src) $("ternary-frame").src = TERNARY_SRC;     // loaded on first open (5 MB)
+  setToggle("eda-toggle", edaPlot);
+  const plot = TERNARY_PLOTS[edaPlot];
+  $("ternary-title").textContent = plot.title;
+  $("eda-hint").textContent = plot.hint;
+  // Loaded when first shown (~5 MB each); switching plots swaps the page.
+  if (edaOpen && $("ternary-frame").getAttribute("src") !== plot.src) $("ternary-frame").src = plot.src;
   document.querySelectorAll(".hydro-only").forEach((e) => { e.hidden = !hydro; });
   // Isopycnal variables are CTD only: no source choice.
   if (hydro && hmeta) $("hydro-source-box").hidden = isIso();
@@ -1337,6 +1356,7 @@ function setupControls() {
     setLayer(b.dataset.value);
   }));
   $("ternary-close").addEventListener("click", () => setEda(false));
+  document.querySelectorAll("#eda-toggle button").forEach((b) => b.addEventListener("click", () => setEda(true, b.dataset.value)));
   $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
   $("dataset-select").addEventListener("change", (e) => chooseDataset(e.target.value));
   setupHydroControls();
@@ -2004,7 +2024,7 @@ function writeHash() {
   if (state.layer !== "hydro" && state.station !== null) params.set("station", meta.stations[state.station].key);
   if (state.scaleMode === "fixed") params.set("scale", "fixed");
   if (!bathyOn) params.set("bathy", "0");
-  if (edaOpen) params.set("eda", "ternary");
+  if (edaOpen) params.set("eda", edaPlot);
   if (ensembleSigma !== 0.5) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
@@ -2048,7 +2068,8 @@ function readHash() {
   hstate.anomaly = params.get("layer") === "anomaly";
   hstate.derived = params.get("layer") === "derived";
   hstate.watermass = params.get("layer") === "watermass";
-  edaOpen = params.get("eda") === "ternary";
+  edaOpen = params.get("eda") in TERNARY_PLOTS;
+  if (edaOpen) edaPlot = params.get("eda");
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));

@@ -187,8 +187,9 @@
         <span class="label">Exploratory data analysis</span>
         <div class="segmented" id="eda-toggle" role="radiogroup" aria-label="Analysis">
           <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae</button>
+          <button type="button" role="radio" data-value="anchovy" aria-checked="false">Ternary plot: water masses vs. anchovy larvae and eggs</button>
         </div>
-        <p class="hint">Winter water-mass composition (Pacific Subarctic, Pacific Equatorial and North Pacific Central waters; OMP analysis of bottle data) at each core station, against the warm- and cool-water indicator larvae caught there, year by year.</p>
+        <p class="hint" id="eda-hint"></p>
       </section>
 
       <section class="control ichthyo-only">
@@ -295,10 +296,10 @@
       </div>
       <section id="ternary-panel" class="ternary-panel" hidden aria-label="Ternary plot">
         <header>
-          <h2>Water-mass composition vs. warm/cool-water ichthyoplankton, winter, core stations</h2>
+          <h2 id="ternary-title"></h2>
           <button type="button" id="ternary-close" aria-label="Close ternary plot">✕</button>
         </header>
-        <iframe id="ternary-frame" title="Ternary plot of water-mass composition and warm/cool-water larvae" loading="lazy"></iframe>
+        <iframe id="ternary-frame" title="Ternary plot" loading="lazy"></iframe>
       </section>
       <section id="section-panel" class="section-panel" hidden aria-label="Hydrographic section">
         <header>
