@@ -1232,7 +1232,7 @@ const TERNARY_PLOTS = {
   sections: {
     native: true,
     title: "Water-mass sections",
-    hint: "North Pacific Central, Pacific Subarctic and Pacific Equatorial water fractions (OMP analysis of bottle or CTD casts) along line 90 or 80, 0–400 m, one season at a time: the three sections step together. The top 30 m is greyed, where the OMP analysis is not valid.",
+    hint: "North Pacific Central, Pacific Subarctic and Pacific Equatorial water fractions (OMP analysis of bottle or CTD casts) along any of the six core lines (76.7–93.3), 0–400 m, one season at a time: the three sections step together. The top 30 m is greyed, where the OMP analysis is not valid.",
   },
   ternary: {
     src: "https://firebasestorage.googleapis.com/v0/b/fishing-maps-dd8ce.firebasestorage.app/o/calcofi_public%2FTernary.html?alt=media&token=eebac6e4-c4dd-4c21-978b-c7c75b3d98c0",

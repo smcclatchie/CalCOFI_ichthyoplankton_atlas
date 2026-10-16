@@ -109,7 +109,7 @@ DEPTH_VARIABLES = {**VARIABLES, **DERIVED_DEPTH_VARIABLES, **FRACTION_VARIABLES}
 # station x survey month x standard-depth values, in <source>/line<L>.json.
 # dynamic_height (CalCOFI's, accumulated from the surface) lets the atlas
 # compute geostrophic velocity between neighbouring stations.
-SECTION_LINES = [90.0, 80.0]
+SECTION_LINES = [76.7, 80.0, 83.3, 86.7, 90.0, 93.3]     # 2026-10-17: all six core lines, north to south (were 90, 80)
 SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "nitrate": "no3", "silicate": "sio3",
                    "n2": "n2", "dynamic_height": "dh", "wm_psa": "psa", "wm_pew": "pew", "wm_npcw": "npcw",
                    "chlorophyll": "chl", "phaeopigment": "phae",      # log10 ug/L, as the maps

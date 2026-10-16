@@ -1,4 +1,4 @@
-// Hydrographic sections along CalCOFI lines 90 and 80: depth (0-500 m)
+// Hydrographic sections along the six core CalCOFI lines (76.7-93.3; 90 and 80 only until 2026-10-17): depth (0-500 m)
 // against position along the line, for the month or season shown and the
 // source chosen. In the Hydrography view the section shows the map's variable
 // (or stability N2, or geostrophic velocity); in the Water masses view, the
@@ -41,6 +41,8 @@ const SECTION_EXTRA = {
   geovel: { label: "Geostrophic velocity, relative to 500 dbar (poleward +)", units: "cm s⁻¹", style: "salinity", diverging: true, geostrophic: true },
 };
 const SECTION_MAX_GAP_KM = 150;
+// The lines with section data (build_hydro_data.py SECTION_LINES = hmeta.sectionLines), for links read before the meta loads.
+const SECTION_LINE_CHOICES = [76.7, 80, 83.3, 86.7, 90, 93.3];
 // Water-mass fractions are greyed out in the top WM_SURFACE_M (2026-10-17,
 // user): surface temperature, oxygen and nutrients are changed by heating, gas
 // exchange and uptake, which the OMP analysis treats as conservative (PEW
@@ -640,6 +642,6 @@ function writeSectionHash(params) {
 
 function readSectionHash(params) {
   if (params.get("disp") === "section") sstate.display = "section";
-  if ([90, 80].includes(Number(params.get("line")))) sstate.line = Number(params.get("line"));
+  if (SECTION_LINE_CHOICES.includes(Number(params.get("line")))) sstate.line = Number(params.get("line"));
   if (params.get("svar") in SECTION_EXTRA) sstate.variable = params.get("svar");
 }

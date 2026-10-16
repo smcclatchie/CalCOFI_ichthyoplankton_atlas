@@ -118,7 +118,7 @@ function writeEdaSectionsHash(params) {
 }
 
 function readEdaSectionsHash(params) {
-  if (Number(params.get("eline"))) edaSec.line = Number(params.get("eline"));
+  if (SECTION_LINE_CHOICES.includes(Number(params.get("eline")))) edaSec.line = Number(params.get("eline"));
   if (["bottle", "ctd"].includes(params.get("esrc"))) edaSec.source = params.get("esrc");
   if (/^\d{4}-(winter|spring|summer|autumn)$/.test(params.get("ewhen") || "")) edaSec.key = params.get("ewhen");
 }
