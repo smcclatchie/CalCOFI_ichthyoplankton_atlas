@@ -51,6 +51,8 @@ const hypoxiaView = makeLineView({
   minAxis: 10,
   niceTop: (a) => Math.ceil(a / 50) * 50,      // ticks at whole tens of metres
   axisLabel: "shoaling of the 1.4 mL/L depth (m)",
+  upLabel: "Shallower",
+  downLabel: "Deeper",
   barColor: (r) => (r.anom >= 0 ? "#e3a9a0" : "#8fb3d9"),
   eventName: "shoaling event",
   eventLabel: "Shoaling events",

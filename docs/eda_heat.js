@@ -51,6 +51,8 @@ const heatView = makeLineView({
   minAxis: 0.2,
   niceTop: (a) => Math.ceil(a * 4) / 4,
   axisLabel: "heat content anomaly (GJ m⁻²)",
+  upLabel: "Warmer",
+  downLabel: "Cooler",
   barColor: (r) => (r.anom >= 0 ? "#e3a9a0" : "#8fb3d9"),
   eventName: "heatwave",
   eventLabel: "Heatwaves",

@@ -50,7 +50,7 @@ function lvSeasons(d, src, col) {
 // col (the column that marks a season as sampled), sectionVar, seasonValue(d, geo,
 // src, lineKey, step) -> { value, n, ...extra } | null, anomalySign (+1: value -
 // mean; -1: mean - value), axisLabel, caption(r), note(view, ctx), panelScale(secs),
-// emptyNote (no seasons).
+// emptyNote (no seasons), upLabel / downLabel (the time series' top and bottom corners).
 function makeLineView(cfg) {
   const view = { line: cfg.defaults.line, source: cfg.defaults.source, panels: cfg.defaults.panels.slice(), focus: 0, ready: false, token: 0 };
   const cache = new Map();
@@ -171,6 +171,10 @@ function makeLineView(cfg) {
     for (let v = -rTop; v <= rTop + 1e-9; v += rTop / 2) parts.push(`<text x="${W - m.r + 6}" y="${sr(v) + 3.5}" ${tick}>${signedValue(+v.toFixed(1))}</text>`);
     parts.push(`<text transform="translate(${m.l - 44} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>${cfg.axisLabel}</text>`);
     parts.push(`<text transform="translate(${W - 10} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>RONI, SCTI (°C)</text>`);
+    // what up and down mean (cfg.upLabel / downLabel), inside the plot's left corners
+    const corner = `font-size="11" font-weight="600" fill="#5b5a55" ${font} stroke="#fbfaf8" stroke-width="3" paint-order="stroke"`;
+    parts.push(`<text x="${m.l + 6}" y="${m.t + 13}" ${corner}>${cfg.upLabel}</text>`);
+    parts.push(`<text x="${m.l + 6}" y="${H - m.b - 6}" ${corner}>${cfg.downLabel}</text>`);
     for (let yr = Math.ceil(x0); yr <= x1; yr++) {          // a tick each year, labelled every 5 (angled)
       const five = yr % 5 === 0, ly = H - m.b + 9;
       parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${H - m.b}" y2="${H - m.b + (yr % 10 === 0 ? 7 : five ? 5 : 3)}" stroke="#85837c"/>`);
