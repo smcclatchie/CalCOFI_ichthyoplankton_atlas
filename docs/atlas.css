@@ -301,13 +301,14 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   z-index: 3;   /* above MapLibre's controls (scale bar, attribution) */
 }
-.station-panel header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* wraps when narrow (e.g. beside a section panel): the title keeps at least ~260 px, the controls move below */
+.station-panel header { display: flex; align-items: center; justify-content: space-between; gap: 4px 10px; flex-wrap: wrap; }
 .station-panel header .chart-toggle { margin-left: auto; flex: none; }
 .station-panel header .chart-toggle[hidden] { display: none; }
 .station-panel header .chart-toggle button { padding: 3px 10px; font-size: 12px; color: inherit; background: var(--panel); border: 0; }
 .station-panel header .chart-toggle button + button { border-left: 1px solid var(--border); }
 .station-panel header .chart-toggle button[aria-checked="true"] { background: var(--accent); color: #fff; }
-.station-panel h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.station-panel h2 { margin: 0; font-size: 14px; font-weight: 600; flex: 1 1 260px; min-width: 0; }
 .station-panel header .ens-smooth { flex: none; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
 .station-panel header .ens-smooth select { font-size: 12px; padding: 2px 4px; }
 .station-panel header .ens-key { flex: none; display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
