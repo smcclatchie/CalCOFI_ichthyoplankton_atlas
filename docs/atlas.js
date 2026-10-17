@@ -2072,7 +2072,15 @@ function writeHash() {
 // warm-water larvae overlaid, the line 90 section; to be redesigned).
 const LANDING_VIEW = "taxon=group%3Awarm-water&stage=larva&sampling=standard&net=CB&view=season&layer=anomaly&src=ctd" +
   "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016&bathy=0";
-const linkView = () => (location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
+// Tracking parameters added by social sites and mail tools (Facebook's fbclid, utm_*, ...) are not
+// a view: dropped, so a plain link shared on Facebook still opens the landing view (2026-10-17).
+const TRACKING_PARAM = /^(fbclid|gclid|dclid|msclkid|twclid|igshid|igsh|mc_cid|mc_eid|_ga|_gl|ref|utm_.*)$/i;
+const untracked = (str) => {
+  const p = new URLSearchParams(str);
+  for (const k of [...p.keys()]) if (TRACKING_PARAM.test(k)) p.delete(k);
+  return p.toString();
+};
+const linkView = () => untracked(location.search.length > 1 ? location.search.slice(1) : location.hash.slice(1));
 const viewString = () => linkView() || LANDING_VIEW;
 // Whether the visitor arrived on the plain address (the landing view), fixed at
 // load: the address takes the view as soon as the atlas starts.
