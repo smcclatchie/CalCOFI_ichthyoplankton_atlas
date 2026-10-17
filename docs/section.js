@@ -539,7 +539,7 @@ function drawSectionSVG(box, sec, opts) {
     parts.push(`<line x1="${X}" x2="${X}" y1="${m.t + ph}" y2="${m.t + ph + 4}" stroke="#85837c"/>`);
     parts.push(`<text x="${X}" y="${m.t + ph + 16}" text-anchor="middle" ${tick} ${font}>${km}</text>`);
   }
-  parts.push(`<text x="${m.l + (W - m.l - m.r) / 2}" y="${H - 3}" text-anchor="middle" ${tick} ${font}>distance from the inshore end of line ${opts.line} (km)</text>`);
+  parts.push(`<text x="${m.l + (W - m.l - m.r) / 2}" y="${H - 4}" text-anchor="middle" ${tick} ${font}>distance from the inshore end of line ${opts.line} (km)</text>`);
   // stations (top)
   parts.push(`<text x="${m.l}" y="${m.t - 19}" text-anchor="start" ${tick} ${font}>station</text>`);
   let lastX = Infinity;

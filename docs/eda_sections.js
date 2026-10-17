@@ -95,21 +95,26 @@ async function renderEdaSections() {
   $("eda-sec-when").textContent = seasonText(step);
   const geo = lineGeometry(d, src, edaSec.line);
   const boxes = document.querySelectorAll("#eda-sec-charts .eda-sec-chart");
+  // the sections first, then the note, then the drawing: the note's height sets the panels' heights,
+  // so drawing before it is filled leaves each SVG too tall and its distance axis cut off
   let sampled = 0;
-  EDA_SECTION_VARS.forEach((key, n) => {
+  const secs = EDA_SECTION_VARS.map((key) => {
     const hv = hmeta.variables[key];
     const v = { label: hv.label, units: hv.units, col: hv.column, style: key, maxDepth: hv.maxDepth, surface: WM_SURFACE_M, step: 10 };
-    const box = boxes[n];
-    box.querySelector("h3").textContent = hv.label;
-    const chart = box.querySelector(".eda-sec-plot");
     const sec = geo && computeSection(d, geo, v, step.periods, { lo: 0, hi: 100, maps: 0 }, src);
-    if (!sec || !sec.ok) { chart.innerHTML = `<p class="hint" style="padding:8px">Line ${edaSec.line} was not sampled at enough stations in ${seasonText(step)}.</p>`; return; }
-    sampled = sec.sampled.size;
-    drawSectionSVG(chart, sec, { fit: "width", id: `eda-sec-${n}`, line: edaSec.line, mapDepth: false, note: false });
+    if (sec && sec.ok) sampled = sec.sampled.size;
+    return { hv, sec };
   });
   $("eda-sec-note").textContent = `Line ${edaSec.line}, ${src.label}: ${sampled} stations sampled in ${seasonText(step)}. ` +
     `Fixed 0–100% colour scale in all panels and seasons; contours every 10%. Grey: no data, or the top ${WM_SURFACE_M} m, ` +
     `where the OMP analysis is not valid. Bograd et al. (2019) extended OMP of T, S, O₂, PO₄, NO₃ and SiO₄.`;
+  secs.forEach(({ hv, sec }, n) => {
+    const box = boxes[n];
+    box.querySelector("h3").textContent = hv.label;
+    const chart = box.querySelector(".eda-sec-plot");
+    if (!sec || !sec.ok) { chart.innerHTML = `<p class="hint" style="padding:8px">Line ${edaSec.line} was not sampled at enough stations in ${seasonText(step)}.</p>`; return; }
+    drawSectionSVG(chart, sec, { fit: "width", id: `eda-sec-${n}`, line: edaSec.line, mapDepth: false, note: false });
+  });
 }
 
 function writeEdaSectionsHash(params) {
