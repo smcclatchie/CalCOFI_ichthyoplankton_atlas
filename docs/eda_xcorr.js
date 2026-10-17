@@ -37,14 +37,14 @@ const XC_HYDRO = [
 ];
 const XC_SEASONS = ["winter", "spring", "summer", "autumn"];
 // Zooplankton (user, 2026-10-17): the atlas's datasets, as log10(1 + value), zeros left out
+// (ZooScan copepods were here briefly; removed by the user)
 const XC_ZOO = [
   { id: "vol", label: "Displacement volume (total)", units: "mL per 1,000 m³, log scale", log: true, sub: "zoo/volume/", net: "CB", stage: "volume", taxon: 0 },
-  { id: "cop", label: "ZooScan copepods (all)", units: "per m², log scale", log: true, sub: "zoo/zooscan/", net: "PR", stage: "zooscan_abundance", taxon: 0 },
 ];
 const xc = {
-  // test default (user, 2026-10-17): the physical variables and anchovy larvae
-  // (integrated chlorophyll is CTD only, so the CTD source by default)
-  x: ["t", "s", "chli", "no3", "o"], y: [], lines: "all", source: "ctd", mode: "all", when: null, cal: "winter", y0: 1983, y1: 2023,
+  // default (user, 2026-10-17, from their chosen view): oxygen, nitrate, salinity, temperature and
+  // displacement volume against Euphausia pacifica adults (krill taxon 4), line 90, bottle, winters 1983-2023
+  x: ["o", "no3", "s", "t", "vol"], y: ["k:4"], lines: "90", source: "bottle", mode: "range", when: null, cal: "winter", y0: 1983, y1: 2023,
   lag: false, ready: false, token: 0, species: null, cache: new Map(),
 };
 
@@ -278,10 +278,6 @@ function setupXcorr() {
   if (xc.ready) return;
   xc.ready = true;
   const vars = xcVariables();
-  if (!xc.y.length) {
-    const anchovy = vars.find((v) => v.label === "Engraulis mordax");
-    xc.y = [anchovy?.id].filter(Boolean);
-  }
   for (const col of ["x", "y"]) {
     const groups = [...new Set(vars.map((v) => v.group))];
     $(`xc-vars-${col}`).innerHTML = groups.map((g) => `<div class="xc-group">${g}</div>` +
@@ -360,7 +356,7 @@ async function renderXcorr() {
   const src = hmeta.sources[xc.source];
   const span = xc.mode === "one" ? seasonText({ year: +wy, season: ws }) : xc.mode === "range" ? `${xc.cal}s ${xc.y0}–${xc.y1}` : "all seasons, all years";
   $("xc-note").textContent = `Each point: one station in one season (${xc.lines === "all" ? "core lines 76.7–93.3" : `line ${xc.lines}`}; ${span}${xc.lag ? "; each y one season after its x" : ""}). ` +
-    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale. Zooplankton: plankton volume (bongo), ZooScan copepods; log scales, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
+    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale. Zooplankton: plankton displacement volume (bongo); log scale, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
     `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; red line: LOWESS smooth (span 2/3; wider, and not robust, for small samples). Abundance axes: log scale, labelled in counts.`;
 }
 
@@ -454,7 +450,7 @@ function writeEdaXcorrHash(params) {
 }
 
 function readEdaXcorrHash(params) {
-  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|chli|no3|o|ph|scti|vol|cop|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
+  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|chli|no3|o|ph|scti|vol|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
   if (params.has("cx")) xc.x = ids("cx");
   if (params.has("cy")) xc.y = ids("cy");
   if (params.get("cl") === "all" || XC_LINES.includes(+params.get("cl"))) xc.lines = params.get("cl");

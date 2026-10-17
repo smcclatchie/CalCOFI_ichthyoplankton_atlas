@@ -429,7 +429,10 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .xc-group { font-size: 10.5px; font-weight: 700; color: var(--text-secondary); margin: 6px 0 2px; text-transform: none; }
 #xc-matrix { position: relative; min-height: 0; overflow: hidden; }
 #xc-matrix svg { display: block; position: absolute; inset: 0; }
-#xc-y0, #xc-y1 { width: 4.5em; font-size: 12px; }
+#xc-y0, #xc-y1 { width: 6.5em; font-size: 12px; padding: 2px 4px; }      /* room for 4 digits and the spinner */
+#xc-range-box { display: inline-flex; align-items: center; gap: 4px; }
+#xc-range-box[hidden] { display: none; }
+#xc-cal { width: auto; font-size: 12px; }
 #xc-one input[type=range] { width: 160px; }
 #xc-one[hidden], #xc-range-box[hidden] { display: none; }
 .heat-key { display: flex; gap: 5px; align-items: center; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
