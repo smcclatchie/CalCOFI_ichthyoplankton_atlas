@@ -54,9 +54,9 @@ const XC_ZOO = [
   { id: "vol", label: "Displacement volume (total)", units: "mL per 1,000 m³, log scale", log: true, sub: "zoo/volume/", net: "CB", stage: "volume", taxon: 0 },
 ];
 const xc = {
-  // default (user, 2026-10-17, from their chosen view): oxygen, nitrate, salinity, temperature and
-  // displacement volume against Euphausia pacifica adults (krill taxon 4), line 90, bottle, winters 1983-2023
-  x: ["o", "no3", "s", "t", "vol"], y: ["k:4"], lines: "90", source: "bottle", mode: "range", when: null, cal: "winter", y0: 1983, y1: 2023,
+  // default (user, 2026-10-17, from their chosen view): temperature, nitrate and the depths of
+  // sigma-theta 25.8 and 26.4 against cool- and warm-water larvae, line 90, bottle, springs 1980-2024
+  x: ["t", "no3", "zs25", "zs264"], y: ["gcf", "gwf"], lines: "90", source: "bottle", mode: "range", when: null, cal: "spring", y0: 1980, y1: 2024,
   lag: false, ready: false, token: 0, species: null, cache: new Map(),
 };
 
@@ -450,15 +450,20 @@ function drawXcMatrix(V, data, seasons) {
         parts.push(`<line x1="${x0 - 3}" x2="${x0}" y1="${py(t)}" y2="${py(t)}" stroke="#85837c"/>`);
         parts.push(`<text x="${x0 - 5}" y="${py(t) + 3}" text-anchor="end" ${tick}>${label}</text>`);
       }
-      // the smooth first, so the dots sit on top of it
-      const smooth = cell.smooth;
-      if (smooth) {
-        parts.push(`<clipPath id="xc-c${i}-${j}"><rect x="${x0}" y="${y0}" width="${w}" height="${h}"/></clipPath>`);
-        parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8" clip-path="url(#xc-c${i}-${j})"/>`);
-        parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-opacity="0.85" clip-path="url(#xc-c${i}-${j})"/>`);
-      }
+      // Draw order by density (user, 2026-10-17): with few points the dots go on top (none hidden);
+      // with many (> 100) the smooth goes on top, haloed, or the cloud buries it.
+      const smooth = cell.smooth, smoothOnTop = pts.length > 100;
+      const drawSmooth = () => {
+        if (smooth) {
+          parts.push(`<clipPath id="xc-c${i}-${j}"><rect x="${x0}" y="${y0}" width="${w}" height="${h}"/></clipPath>`);
+          parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#ffffff" stroke-width="${smoothOnTop ? 4.5 : 4}" stroke-opacity="${smoothOnTop ? 0.95 : 0.8}" clip-path="url(#xc-c${i}-${j})"/>`);
+          parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#c0392b" stroke-width="${smoothOnTop ? 2.2 : 1.8}" stroke-opacity="${smoothOnTop ? 1 : 0.85}" clip-path="url(#xc-c${i}-${j})"/>`);
+        }
+      };
+      if (!smoothOnTop) drawSmooth();
       const rad = pts.length > 2000 ? 1.2 : pts.length > 300 ? 1.8 : 2.6, op = pts.length > 2000 ? 0.25 : pts.length > 300 ? 0.4 : 0.65;
       parts.push(`<g fill="#2a78d6" fill-opacity="${op}">` + cell.drawn.map(([x, y]) => `<circle cx="${px(x).toFixed(1)}" cy="${py(y).toFixed(1)}" r="${rad}"/>`).join("") + "</g>");
+      if (smoothOnTop) drawSmooth();
       const f = cell.fit;
       parts.push(`<text x="${x0 + 5}" y="${y0 + 13}" font-size="11" font-weight="700" fill="${f && Math.abs(f.r) >= 0.5 ? "#c0392b" : "#1f1e1c"}" ${font} stroke="#fbfaf8" stroke-width="3" paint-order="stroke">r = ${f ? f.r.toFixed(2) : "–"}</text>`);
       parts.push(`<text x="${x0 + 5}" y="${y0 + 25}" font-size="10" fill="#5b5a55" ${font} stroke="#fbfaf8" stroke-width="3" paint-order="stroke">n = ${pts.length}</text>`);
