@@ -31,15 +31,20 @@ const XC_MAX_VARS = 7;            // in all: the triangle (21 cells) has to fit 
 const XC_HYDRO = [
   { id: "t", label: "Temperature", units: "°C", col: "t" },
   { id: "s", label: "Salinity", units: "", col: "s" },
-  { id: "chl", label: "Chlorophyll", units: "µg/L, log scale", col: "chl", log10: true, logAxis: true },     // shown as log10 (skewed)
   { id: "no3", label: "Nitrate", units: "µM", col: "no3" },
   { id: "o", label: "Dissolved oxygen", units: "mL/L", col: "o" },
   { id: "ph", label: "pH", units: "", col: "ph" },
 ];
 const XC_SEASONS = ["winter", "spring", "summer", "autumn"];
+// Zooplankton (user, 2026-10-17): the atlas's datasets, as log10(1 + value), zeros left out
+const XC_ZOO = [
+  { id: "vol", label: "Displacement volume (total)", units: "mL per 1,000 m³, log scale", log: true, sub: "zoo/volume/", net: "CB", stage: "volume", taxon: 0 },
+  { id: "cop", label: "ZooScan copepods (all)", units: "per m², log scale", log: true, sub: "zoo/zooscan/", net: "PR", stage: "zooscan_abundance", taxon: 0 },
+];
 const xc = {
   // test default (user, 2026-10-17): the physical variables and anchovy larvae
-  x: ["t", "s", "chl", "no3", "o"], y: [], lines: "all", source: "bottle", mode: "all", when: null, cal: "winter", y0: 1983, y1: 2023,
+  // (integrated chlorophyll is CTD only, so the CTD source by default)
+  x: ["t", "s", "chli", "no3", "o"], y: [], lines: "all", source: "ctd", mode: "all", when: null, cal: "winter", y0: 1983, y1: 2023,
   lag: false, ready: false, token: 0, species: null, cache: new Map(),
 };
 
@@ -55,7 +60,10 @@ function xcVariables() {
   const sp = xc.species;
   return [
     ...XC_HYDRO.map((v) => ({ ...v, group: `Hydrography, 0–${XC_DEPTH} m mean` })),
+    // integrated chlorophyll replaces the 0-200 m mean chlorophyll (user, 2026-10-17): CalCOFI's own, CTD casts
+    { id: "chli", label: "Integrated chlorophyll a, 0–200 m", units: "mg m⁻², log scale; CTD", logAxis: true, group: `Hydrography, 0–${XC_DEPTH} m mean` },
     { id: "scti", label: "SCTI (SoCal Temperature Index)", group: "Index", units: "°C" },
+    ...XC_ZOO.map((z) => ({ ...z, group: "Zooplankton" })),
     ...sp.ichthyo.species.map((t) => ({ id: `f:${t.id}`, label: t.scientific, common: t.common, units: "larvae per 10 m², log scale", log: true, group: "Larval fish, top 10% by abundance" })),
     ...sp.krill.species.map((t) => ({ id: `k:${t.id}`, label: t.scientific, units: "adults per m², log scale", log: true, group: "Krill adults, top 10% by abundance" })),
   ];
@@ -89,9 +97,16 @@ async function xcHydro(v) {
 
 const xcDataset = new Map();
 async function xcSpecies(kind, id) {
-  const key = `${kind}:${id}`;
+  const info = xc.species[kind === "f" ? "ichthyo" : "krill"];
+  return xcDatasetVar(`${kind}:${id}`, { sub: kind === "f" ? "" : "zoo/krill/", net: info.net, stage: info.stage, taxon: id });
+}
+
+// One taxon of an atlas dataset (larvae, krill, plankton volume, ZooScan): per station and
+// season, the mean over the season's survey months (standard sampling, absences as zero),
+// as log10(1 + value).
+async function xcDatasetVar(key, spec) {
   if (xc.cache.has(key)) return xc.cache.get(key);
-  const sub = kind === "f" ? "" : "zoo/krill/", info = xc.species[kind === "f" ? "ichthyo" : "krill"];
+  const sub = spec.sub, info = spec, id = spec.taxon;
   if (!xcDataset.has(sub)) {
     const [m, o] = await Promise.all([getJSON(`${sub}meta.json`), getJSON(`${sub}occupations.json`)]);
     xcDataset.set(sub, { m, o });
@@ -119,7 +134,30 @@ async function xcSpecies(kind, id) {
 async function xcData(id) {
   if (id === "scti") return null;                     // seasonal: handled when pairing
   if (id.startsWith("f:") || id.startsWith("k:")) return xcSpecies(id[0], +id.slice(2));
+  if (id === "chli") return xcCastVar("chli");
+  const zoo = XC_ZOO.find((z) => z.id === id);
+  if (zoo) return xcDatasetVar(zoo.id, zoo);
   return xcHydro(XC_HYDRO.find((v) => v.id === id));
+}
+
+// Integrated chlorophyll (CalCOFI's, CTD casts; hydro/<source>/cast.json "chli", log10 mg m-2):
+// per station and season, the mean over its survey months, on a log axis.
+async function xcCastVar(col) {
+  const key = `${xc.source}/cast/${col}`;
+  if (xc.cache.has(key)) return xc.cache.get(key);
+  const src = hmeta.sources[xc.source], c = await getJSON(`hydro/${xc.source}/cast.json`), acc = new Map();
+  if (c[col]) c.p.forEach((p, i) => {
+    const v = c[col][i], st = src.stations[c.st[i]];
+    if (v === null || v === undefined || !XC_LINES.includes(st.line)) return;
+    const per = src.periods[p], sk = xcSeasonKey(per.year, per.month);
+    if (!acc.has(sk)) acc.set(sk, new Map());
+    const a = acc.get(sk).get(st.key) || [0, 0];
+    a[0] += v; a[1] += 1;
+    acc.get(sk).set(st.key, a);
+  });
+  const out = new Map([...acc].map(([sk, m]) => [sk, new Map([...m].map(([k, [sum, n]]) => [k, sum / n]))]));
+  xc.cache.set(key, out);
+  return out;
 }
 
 // The seasons the time-scale setting keeps.
@@ -144,7 +182,7 @@ function xcPairs(dx, dy, idx, idy, seasons) {
   }
   // Zero catches left out (user, 2026-10-17): a station-season where a species variable is
   // zero (log10(1 + 0)) is not a pair, so r and the line describe where the species was caught.
-  const isSpecies = (id) => id.startsWith("f:") || id.startsWith("k:");
+  const isSpecies = (id) => id.startsWith("f:") || id.startsWith("k:") || XC_ZOO.some((z) => z.id === id);
   return pts.filter(([x, y]) => !(isSpecies(idx) && x === 0) && !(isSpecies(idy) && y === 0));
 }
 
@@ -204,7 +242,7 @@ function lowess(pts) {
 function xcTicks(v, lo, hi) {
   if (v.logAxis) {                                   // log10 values, labelled in the variable's units
     const out = [];
-    for (const c of [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100]) { const t = Math.log10(c); if (t >= lo && t <= hi) out.push([t, String(c)]); }
+    for (const c of [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000]) { const t = Math.log10(c); if (t >= lo && t <= hi) out.push([t, String(c)]); }
     return out;
   }
   if (v.log) {
@@ -316,7 +354,7 @@ async function renderXcorr() {
   const src = hmeta.sources[xc.source];
   const span = xc.mode === "one" ? seasonText({ year: +wy, season: ws }) : xc.mode === "range" ? `${xc.cal}s ${xc.y0}–${xc.y1}` : "all seasons, all years";
   $("xc-note").textContent = `Each point: one station in one season (${xc.lines === "all" ? "core lines 76.7–93.3" : `line ${xc.lines}`}; ${span}${xc.lag ? "; each y one season after its x" : ""}). ` +
-    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only; chlorophyll on a log scale). Species: log₁₀(1 + abundance), standard sampling, ` +
+    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale. Zooplankton: plankton volume (bongo), ZooScan copepods; log scales, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
     `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; red line: LOWESS smooth (span 0.5, robust). Abundance axes: log scale, labelled in counts.`;
 }
 
@@ -409,7 +447,7 @@ function writeEdaXcorrHash(params) {
 }
 
 function readEdaXcorrHash(params) {
-  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|chl|no3|o|ph|scti|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
+  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|chli|no3|o|ph|scti|vol|cop|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
   if (params.has("cx")) xc.x = ids("cx");
   if (params.has("cy")) xc.y = ids("cy");
   if (params.get("cl") === "all" || XC_LINES.includes(+params.get("cl"))) xc.lines = params.get("cl");
