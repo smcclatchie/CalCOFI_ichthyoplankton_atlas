@@ -1234,6 +1234,11 @@ const TERNARY_PLOTS = {
     title: "Heat content: El Niño and marine heatwaves",
     hint: "Upper-ocean (0–200 m) heat-content anomaly along a core line, season by season, with the Relative Oceanic Niño Index (RONI) and the Southern California Temperature Index (SCTI, Spray gliders): El Niño seasons shaded, marine heatwaves (Hobday et al. 2016, seasonal) coloured by category, non-ENSO ones marked. Below, temperature-anomaly sections for three seasons to compare, on one colour scale (click the time series to pick one).",
   },
+  hypoxia: {
+    native: { panel: "eda-hyp", render: () => renderEdaHypoxia() },
+    title: "Hypoxic layer: depth of 1.4 mL/L oxygen",
+    hint: "The depth of the hypoxic boundary (the shallowest depth with dissolved oxygen below 1.4 mL/L) along a core line, season by season, as shoaling or deepening from its calendar season, with RONI and the Southern California Temperature Index; shoaling events coloured by category (Hobday-style). Below, oxygen sections for three seasons to compare, the 1.4 mL/L contour bold.",
+  },
   sections: {
     native: { panel: "eda-sections", render: () => renderEdaSections() },
     title: "Water-mass sections",
@@ -1371,7 +1376,6 @@ function setupControls() {
   }));
   $("ternary-close").addEventListener("click", () => setEda(false));
   $("eda-sec-close").addEventListener("click", () => setEda(false));
-  $("heat-close").addEventListener("click", () => setEda(false));
   document.querySelectorAll("#eda-toggle button").forEach((b) => b.addEventListener("click", () => setEda(true, b.dataset.value)));
   $("species-select").addEventListener("change", (e) => selectTaxon(taxa[Number(e.target.value)], true));
   $("dataset-select").addEventListener("change", (e) => chooseDataset(e.target.value));
@@ -2045,6 +2049,7 @@ function writeHash() {
   if (edaOpen) params.set("eda", edaPlot);
   if (edaOpen && edaPlot === "sections") writeEdaSectionsHash(params);
   if (edaOpen && edaPlot === "heat") writeEdaHeatHash(params);
+  if (edaOpen && edaPlot === "hypoxia") writeEdaHypoxiaHash(params);
   if (ensembleSigma !== 0.5) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
@@ -2092,6 +2097,7 @@ function readHash() {
   if (edaOpen) edaPlot = params.get("eda");
   if (edaPlot === "sections") readEdaSectionsHash(params);
   if (edaPlot === "heat") readEdaHeatHash(params);
+  if (edaPlot === "hypoxia") readEdaHypoxiaHash(params);
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));

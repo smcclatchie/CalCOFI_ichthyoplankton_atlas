@@ -404,8 +404,12 @@ function computeSection(d, geo, v, periods, fixed, src = hSrc(), lineKey = sKey(
       labels.push({ km: toKm(x), z: toZ(y), t: sFmt(c.value, v) });
     }
   }
+  // v.highlight: one value's contour drawn bold (e.g. the hypoxia threshold, 1.4 mL/L)
+  const highlight = v.highlight === undefined ? null
+    : d3.contours().size([grid.nx, grid.nz]).thresholds([v.highlight])(Array.from(filled, (z) => Math.round(z / eps) * eps))[0];
   return {
     ok: true, v, geo, scale, grid, values, x0, x1,
+    highlight: highlight && highlight.coordinates.length ? ringsKm(highlight.coordinates.flat()) : null,
     image: canvas.toDataURL(),
     mask: ringsKm(mask.coordinates.flat()),
     lines: lines.map((c) => ({ value: c.value, rings: ringsKm(c.coordinates.flat()) })),
@@ -474,6 +478,10 @@ function drawSectionSVG(box, sec, opts) {
     const zero = v.diverging && Math.abs(c.value) < 1e-9;
     parts.push(`<path d="${path(c.rings)}" fill="none" stroke="${scale.line}" stroke-opacity="0.85" stroke-width="${zero ? 1.8 : 0.8}" vector-effect="non-scaling-stroke" clip-path="url(#${id}-data)"/>`);
   }
+  if (sec.highlight) {          // the emphasised contour: bold, on a white halo
+    parts.push(`<path d="${path(sec.highlight)}" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-opacity="0.75" vector-effect="non-scaling-stroke" clip-path="url(#${id}-data)"/>`);
+    parts.push(`<path d="${path(sec.highlight)}" fill="none" stroke="#1f1e1c" stroke-width="2.2" vector-effect="non-scaling-stroke" clip-path="url(#${id}-data)"/>`);
+  }
   parts.push("</g>");
   // Water-mass fractions: the surface layer greyed out (see WM_SURFACE_M).
   if (v.surface) {
@@ -481,8 +489,18 @@ function drawSectionSVG(box, sec, opts) {
     parts.push(`<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${y1 - m.t}" fill="#d9d7cf" opacity="0.94"/>`);
     if (y1 - m.t >= 11) parts.push(`<text x="${m.l + 8}" y="${(m.t + y1) / 2 + 3.5}" font-size="10" fill="#5b5a55" ${font}>0–${v.surface} m not shown: the OMP analysis is not valid in surface water</text>`);
   }
-  // contour labels, kept apart
+  // contour labels, kept apart (the emphasised contour's first, on its longest ring's middle)
   const placed = [];
+  if (sec.highlight) {
+    const ring = sec.highlight.reduce((a, b) => (b.length > a.length ? b : a));
+    const pts = ring.map(([km, z]) => [px(km), py(z)]).filter(([X, Y]) => X > m.l + 14 && X < W - m.r - 14 && Y > m.t + 8 && Y < m.t + ph - 6);
+    if (pts.length) {
+      const [X, Y] = pts[Math.floor(pts.length / 2)];
+      placed.push([X, Y]);
+      parts.push(`<text x="${X}" y="${Y + 3.5}" text-anchor="middle" font-size="11" font-weight="700" fill="#1f1e1c" ${font} ` +
+        `stroke="rgba(255,255,255,0.9)" stroke-width="3" paint-order="stroke">${sFmt(v.highlight, v)}</text>`);
+    }
+  }
   for (const l of labels) {
     if (v.surface && l.z < v.surface + 8) continue;       // not in (or on the edge of) the greyed surface layer
     const X = px(l.km), Y = py(l.z);

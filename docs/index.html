@@ -188,6 +188,7 @@
         <div class="segmented" id="eda-toggle" role="radiogroup" aria-label="Analysis">
           <button type="button" role="radio" data-value="sections" aria-checked="false">Water-mass sections: PSA, PEW and NPCW along a line</button>
           <button type="button" role="radio" data-value="heat" aria-checked="false">Heat content: El Niño and marine heatwaves</button>
+          <button type="button" role="radio" data-value="hypoxia" aria-checked="false">Hypoxic layer: depth of 1.4 mL/L oxygen</button>
           <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae (winter and spring)</button>
           <button type="button" role="radio" data-value="krill" aria-checked="false">Ternary plot: water masses vs. krill assemblages (winter and spring)</button>
         </div>
@@ -316,13 +317,34 @@
           </div>
           <button type="button" id="heat-close" aria-label="Back to the map">✕</button>
         </header>
-        <div id="heat-chart"></div>
-        <div id="heat-panels">
-          <div class="heat-panel"><h3>A <select aria-label="Season A"></select></h3><div class="heat-stats"></div><div class="heat-plot"></div></div>
-          <div class="heat-panel"><h3>B <select aria-label="Season B"></select></h3><div class="heat-stats"></div><div class="heat-plot"></div></div>
-          <div class="heat-panel"><h3>C <select aria-label="Season C"></select></h3><div class="heat-stats"></div><div class="heat-plot"></div></div>
+        <div id="heat-chart" class="lv-chart"></div>
+        <div id="heat-panels" class="lv-panels">
+          <div class="lv-panel"><h3>A <select aria-label="Season A"></select></h3><div class="lv-stats"></div><div class="lv-plot"></div></div>
+          <div class="lv-panel"><h3>B <select aria-label="Season B"></select></h3><div class="lv-stats"></div><div class="lv-plot"></div></div>
+          <div class="lv-panel"><h3>C <select aria-label="Season C"></select></h3><div class="lv-stats"></div><div class="lv-plot"></div></div>
         </div>
         <p class="hint" id="heat-note"></p>
+      </section>
+      <section id="eda-hyp" class="eda-sections" hidden aria-label="Hypoxic layer">
+        <header>
+          <h2>Hypoxic layer: depth of 1.4 mL/L oxygen</h2>
+          <div class="eda-sec-controls">
+            <label>Line <select id="hyp-line"></select></label>
+            <div class="segmented" id="hyp-source" role="radiogroup" aria-label="Source">
+              <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle</button>
+              <button type="button" role="radio" data-value="ctd" aria-checked="false">CTD</button>
+            </div>
+            <span class="heat-key">shoaling event: <i style="background:#ffc866"></i>moderate <i style="background:#ff6900"></i>strong <i style="background:#9e0000"></i>severe <i style="background:#2d0000"></i>extreme · ◆ non-ENSO · <i class="hk-nino"></i>El Niño · <i class="hk-roni"></i>RONI <i class="hk-scti"></i>SCTI</span>
+          </div>
+          <button type="button" id="hyp-close" aria-label="Back to the map">✕</button>
+        </header>
+        <div id="hyp-chart" class="lv-chart"></div>
+        <div id="hyp-panels" class="lv-panels">
+          <div class="lv-panel"><h3>A <select aria-label="Season A"></select></h3><div class="lv-stats"></div><div class="lv-plot"></div></div>
+          <div class="lv-panel"><h3>B <select aria-label="Season B"></select></h3><div class="lv-stats"></div><div class="lv-plot"></div></div>
+          <div class="lv-panel"><h3>C <select aria-label="Season C"></select></h3><div class="lv-stats"></div><div class="lv-plot"></div></div>
+        </div>
+        <p class="hint" id="hyp-note"></p>
       </section>
       <section id="eda-sections" class="eda-sections" hidden aria-label="Water-mass sections">
         <header>
@@ -384,7 +406,9 @@
   <script src="hydro.js"></script>
   <script src="section.js"></script>
   <script src="eda_sections.js"></script>
+  <script src="eda_lineview.js"></script>
   <script src="eda_heat.js"></script>
+  <script src="eda_hypoxia.js"></script>
   <script src="atlas.js"></script>
 </body>
 </html>
