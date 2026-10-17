@@ -2074,7 +2074,7 @@ const LANDING_VIEW = "taxon=group%3Awarm-water&stage=larva&sampling=standard&net
   "&var=wm_pew&depth=50&overlay=1&hst=090.0+060.0&disp=section&line=90&season=sequence&shown=spring&year=2016&bathy=0";
 // Tracking parameters added by social sites and mail tools (Facebook's fbclid, utm_*, ...) are not
 // a view: dropped, so a plain link shared on Facebook still opens the landing view (2026-10-17).
-const TRACKING_PARAM = /^(fbclid|gclid|dclid|msclkid|twclid|igshid|igsh|mc_cid|mc_eid|_ga|_gl|ref|utm_.*)$/i;
+const TRACKING_PARAM = /^(fbclid|gclid|dclid|msclkid|twclid|igshid|igsh|li_fat_id|trk|trkInfo|mc_cid|mc_eid|_ga|_gl|ref|utm_.*)$/i;
 const untracked = (str) => {
   const p = new URLSearchParams(str);
   for (const k of [...p.keys()]) if (TRACKING_PARAM.test(k)) p.delete(k);
