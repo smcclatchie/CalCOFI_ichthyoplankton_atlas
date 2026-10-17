@@ -39,6 +39,17 @@ const XC_HYDRO = [
 const XC_SEASONS = ["winter", "spring", "summer", "autumn"];
 // Zooplankton (user, 2026-10-17): the atlas's datasets, as log10(1 + value), zeros left out
 // (ZooScan copepods were here briefly; removed by the user)
+// Warm/cool groups (user, 2026-10-17): summed abundance of their members, log axes, zeros left out.
+// Larvae: the atlas's groups (the warm/cool ternary plot's species). Krill adults: the krill ternary
+// plot's classification (user-confirmed, pending checking), warm = warm-central + warm-equatorial.
+const XC_GROUPS = [
+  { id: "gwf", label: "Warm-water larvae", units: "larvae per 10 m², log scale", log: true, sub: "", net: "CB", stage: "larva", keys: ["group:warm-water"] },
+  { id: "gcf", label: "Cool-water larvae", units: "larvae per 10 m², log scale", log: true, sub: "", net: "CB", stage: "larva", keys: ["group:cool-water"] },
+  { id: "gwk", label: "Warm-water krill (central + equatorial)", units: "adults per m², log scale", log: true, sub: "zoo/krill/", net: "KR", stage: "adult",
+    keys: ["worms:221047", "worms:110684", "worms:110686", "worms:110688", "worms:237864", "worms:237853", "worms:110700", "worms:1649791"] },
+  { id: "gck", label: "Cool-water krill", units: "adults per m², log scale", log: true, sub: "zoo/krill/", net: "KR", stage: "adult",
+    keys: ["worms:237851", "worms:237874", "worms:1649784", "worms:110707", "worms:237870", "worms:237873"] },
+];
 const XC_ZOO = [
   { id: "vol", label: "Displacement volume (total)", units: "mL per 1,000 m³, log scale", log: true, sub: "zoo/volume/", net: "CB", stage: "volume", taxon: 0 },
 ];
@@ -68,6 +79,7 @@ function xcVariables() {
     { id: "zs264", label: "Depth of σθ 26.4", units: "m", group: "Isopycnal depths" },
     { id: "scti", label: "SCTI (SoCal Temperature Index)", group: "Index", units: "°C" },
     ...XC_ZOO.map((z) => ({ ...z, group: "Zooplankton" })),
+    ...XC_GROUPS.map((z) => ({ ...z, group: "Warm/cool-water groups" })),
     ...sp.ichthyo.species.map((t) => ({ id: `f:${t.id}`, label: t.scientific, common: t.common, units: "larvae per 10 m², log scale", log: true, group: "Larval fish, top 10% by abundance" })),
     ...sp.krill.species.map((t) => ({ id: `k:${t.id}`, label: t.scientific, units: "adults per m², log scale", log: true, group: "Krill adults, top 10% by abundance" })),
   ];
@@ -115,12 +127,25 @@ async function xcDatasetVar(key, spec) {
     const [m, o] = await Promise.all([getJSON(`${sub}meta.json`), getJSON(`${sub}occupations.json`)]);
     xcDataset.set(sub, { m, o });
   }
-  const { m, o } = xcDataset.get(sub), r = await getJSON(`${sub}taxa/${id}.json`);
+  // spec.keys: several taxa (by key, looked up in the dataset's taxa.json), summed per sample
+  let ids = [id];
+  if (spec.keys) {
+    if (!xcDataset.get(sub).taxa) xcDataset.get(sub).taxa = await getJSON(`${sub}taxa.json`);
+    const byKey = new Map(xcDataset.get(sub).taxa.map((t) => [t.key, t.id]));
+    ids = spec.keys.map((k) => byKey.get(k)).filter((x) => x !== undefined);
+  }
+  const { m, o } = xcDataset.get(sub), files = await Promise.all(ids.map((i) => getJSON(`${sub}taxa/${i}.json`)));
   const sStd = m.samplings.indexOf("standard"), net = m.nets.findIndex((n) => n.code === info.net);
   const g = (m.stages || m.stageInfo.map((x) => x.key)).indexOf(info.stage);
   const core = (st) => XC_LINES.includes(m.stations[st].line);
   const catchAt = new Map();
-  r.p.forEach((p, i) => { if (r.s[i] === sStd && r.n[i] === net && r.g[i] === g) catchAt.set(`${p}|${r.st[i]}`, r.a[i]); });
+  for (const r of files) {
+    r.p.forEach((p, i) => {
+      if (r.s[i] !== sStd || r.n[i] !== net || r.g[i] !== g) return;
+      const k = `${p}|${r.st[i]}`;
+      catchAt.set(k, (catchAt.get(k) || 0) + r.a[i]);
+    });
+  }
   const acc = new Map();          // season -> station -> [sum, n] over the season's survey months
   o.p.forEach((p, i) => {
     if (o.s[i] !== sStd || o.n[i] !== net || !core(o.st[i])) return;
@@ -139,7 +164,7 @@ async function xcData(id) {
   if (id === "scti") return null;                     // seasonal: handled when pairing
   if (id.startsWith("f:") || id.startsWith("k:")) return xcSpecies(id[0], +id.slice(2));
   if (id === "chli" || id === "zs25" || id === "zs264") return xcCastVar(id);
-  const zoo = XC_ZOO.find((z) => z.id === id);
+  const zoo = XC_ZOO.find((z) => z.id === id) || XC_GROUPS.find((z) => z.id === id);
   if (zoo) return xcDatasetVar(zoo.id, zoo);
   return xcHydro(XC_HYDRO.find((v) => v.id === id));
 }
@@ -187,7 +212,7 @@ function xcPairs(dx, dy, idx, idy, seasons) {
   }
   // Zero catches left out (user, 2026-10-17): a station-season where a species variable is
   // zero (log10(1 + 0)) is not a pair, so r and the line describe where the species was caught.
-  const isSpecies = (id) => id.startsWith("f:") || id.startsWith("k:") || XC_ZOO.some((z) => z.id === id);
+  const isSpecies = (id) => id.startsWith("f:") || id.startsWith("k:") || XC_ZOO.some((z) => z.id === id) || XC_GROUPS.some((z) => z.id === id);
   return pts.filter(([x, y]) => !(isSpecies(idx) && x === 0) && !(isSpecies(idy) && y === 0));
 }
 
@@ -361,7 +386,7 @@ async function renderXcorr() {
   const src = hmeta.sources[xc.source];
   const span = xc.mode === "one" ? seasonText({ year: +wy, season: ws }) : xc.mode === "range" ? `${xc.cal}s ${xc.y0}–${xc.y1}` : "all seasons, all years";
   $("xc-note").textContent = `Each point: one station in one season (${xc.lines === "all" ? "core lines 76.7–93.3" : `line ${xc.lines}`}; ${span}${xc.lag ? "; each y one season after its x" : ""}). ` +
-    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale; isopycnal depths and spiciness from the cast profiles. Zooplankton: plankton displacement volume (bongo); log scale, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
+    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale; isopycnal depths and spiciness from the cast profiles. Zooplankton: plankton displacement volume (bongo); log scale, zeros left out. Species and warm/cool groups (summed members; krill as in the krill ternary plot): log₁₀(1 + abundance), standard sampling, ` +
     `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; red line: LOWESS smooth (span 2/3; wider, and not robust, for small samples). Abundance axes: log scale, labelled in counts.`;
 }
 
@@ -455,7 +480,7 @@ function writeEdaXcorrHash(params) {
 }
 
 function readEdaXcorrHash(params) {
-  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|sp|chli|zs25|zs264|no3|o|ph|scti|vol|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
+  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|sp|chli|zs25|zs264|no3|o|ph|scti|vol|g[wc][fk]|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
   if (params.has("cx")) xc.x = ids("cx");
   if (params.has("cy")) xc.y = ids("cy");
   if (params.get("cl") === "all" || XC_LINES.includes(+params.get("cl"))) xc.lines = params.get("cl");
