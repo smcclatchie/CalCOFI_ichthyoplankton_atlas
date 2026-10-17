@@ -187,14 +187,19 @@ function xcPairs(dx, dy, idx, idy, seasons) {
 }
 
 // LOWESS (Cleveland 1979): at XC_LOWESS_N points across the x range, a local linear fit
-// to the nearest XC_LOWESS_F of the points, tricube-weighted, with two robustness passes
-// (bisquare weights on the residuals). Returns [[x, y], ...].
-const XC_LOWESS_F = 0.5, XC_LOWESS_N = 40;
+// to the nearest fraction f of the points, tricube-weighted, with two robustness passes
+// (bisquare weights on the residuals). Returns [[x, y], ...]. Tuned 2026-10-17 (user: the
+// curves were jagged in single seasons, ~10-30 points): f = 2/3 (the usual default),
+// wider for small samples (0.75 below 100 points, 0.9 below 30), no robustness passes
+// below 30 points (too few to tell an outlier), and a light 3-point running mean on the
+// result to remove the kinks of the moving window.
+const XC_LOWESS_N = 40;
+const xcSpan = (n) => (n < 30 ? 0.9 : n < 100 ? 0.75 : 2 / 3);
 function lowess(pts) {
   const n = pts.length;
   if (n < 10) return null;
   const sorted = pts.slice().sort((a, b) => a[0] - b[0]), xs = sorted.map((p) => p[0]), ys = sorted.map((p) => p[1]);
-  const k = Math.max(5, Math.floor(XC_LOWESS_F * n));
+  const k = Math.max(5, Math.floor(xcSpan(n) * n));
   let robust = new Float64Array(n).fill(1);
   const fitAt = (x0) => {
     // the k nearest points: a window around x0 in the sorted xs
@@ -229,13 +234,14 @@ function lowess(pts) {
     return xb > xa ? ya + ((yb - ya) * (x - xa)) / (xb - xa) : ya;
   };
   let curve = grid();
-  for (let pass = 0; pass < 2 && curve.length > 1; pass++) {      // robustness: down-weight large residuals
+  for (let pass = 0; pass < (n < 30 ? 0 : 2) && curve.length > 1; pass++) {      // robustness: down-weight large residuals
     const res = ys.map((y, i) => Math.abs(y - interp(curve, xs[i])));
     const med = res.slice().sort((p, q) => p - q)[Math.floor(n / 2)] || 1e-9;
     robust = Float64Array.from(res, (r) => { const u = r / (6 * med); return u < 1 ? (1 - u * u) ** 2 : 0; });
     curve = grid();
   }
-  return curve;
+  // a light 3-point running mean (the ends kept)
+  return curve.map(([x, y], i) => (i === 0 || i === curve.length - 1 ? [x, y] : [x, (curve[i - 1][1] + y + curve[i + 1][1]) / 3]));
 }
 
 // Axis ticks: nice values; for log-scale species, counts 1, 10, 100, ... at log10(1 + count).
@@ -355,7 +361,7 @@ async function renderXcorr() {
   const span = xc.mode === "one" ? seasonText({ year: +wy, season: ws }) : xc.mode === "range" ? `${xc.cal}s ${xc.y0}–${xc.y1}` : "all seasons, all years";
   $("xc-note").textContent = `Each point: one station in one season (${xc.lines === "all" ? "core lines 76.7–93.3" : `line ${xc.lines}`}; ${span}${xc.lag ? "; each y one season after its x" : ""}). ` +
     `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale. Zooplankton: plankton volume (bongo), ZooScan copepods; log scales, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
-    `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; red line: LOWESS smooth (span 0.5, robust). Abundance axes: log scale, labelled in counts.`;
+    `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; red line: LOWESS smooth (span 2/3; wider, and not robust, for small samples). Abundance axes: log scale, labelled in counts.`;
 }
 
 // One cell's pairs, a drawn subset (at most XC_DRAW_MAX points: r, n and the smooth use
@@ -418,14 +424,15 @@ function drawXcMatrix(V, data, seasons) {
         parts.push(`<line x1="${x0 - 3}" x2="${x0}" y1="${py(t)}" y2="${py(t)}" stroke="#85837c"/>`);
         parts.push(`<text x="${x0 - 5}" y="${py(t) + 3}" text-anchor="end" ${tick}>${label}</text>`);
       }
-      const rad = pts.length > 2000 ? 1.2 : pts.length > 300 ? 1.8 : 2.6, op = pts.length > 2000 ? 0.25 : pts.length > 300 ? 0.4 : 0.65;
-      parts.push(`<g fill="#2a78d6" fill-opacity="${op}">` + cell.drawn.map(([x, y]) => `<circle cx="${px(x).toFixed(1)}" cy="${py(y).toFixed(1)}" r="${rad}"/>`).join("") + "</g>");
+      // the smooth first, so the dots sit on top of it
       const smooth = cell.smooth;
       if (smooth) {
         parts.push(`<clipPath id="xc-c${i}-${j}"><rect x="${x0}" y="${y0}" width="${w}" height="${h}"/></clipPath>`);
         parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8" clip-path="url(#xc-c${i}-${j})"/>`);
-        parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#c0392b" stroke-width="2" clip-path="url(#xc-c${i}-${j})"/>`);
+        parts.push(`<path d="M${smooth.map(([x, y]) => `${px(x).toFixed(1)},${py(y).toFixed(1)}`).join("L")}" fill="none" stroke="#c0392b" stroke-width="1.8" stroke-opacity="0.85" clip-path="url(#xc-c${i}-${j})"/>`);
       }
+      const rad = pts.length > 2000 ? 1.2 : pts.length > 300 ? 1.8 : 2.6, op = pts.length > 2000 ? 0.25 : pts.length > 300 ? 0.4 : 0.65;
+      parts.push(`<g fill="#2a78d6" fill-opacity="${op}">` + cell.drawn.map(([x, y]) => `<circle cx="${px(x).toFixed(1)}" cy="${py(y).toFixed(1)}" r="${rad}"/>`).join("") + "</g>");
       const f = cell.fit;
       parts.push(`<text x="${x0 + 5}" y="${y0 + 13}" font-size="11" font-weight="700" fill="${f && Math.abs(f.r) >= 0.5 ? "#c0392b" : "#1f1e1c"}" ${font} stroke="#fbfaf8" stroke-width="3" paint-order="stroke">r = ${f ? f.r.toFixed(2) : "–"}</text>`);
       parts.push(`<text x="${x0 + 5}" y="${y0 + 25}" font-size="10" fill="#5b5a55" ${font} stroke="#fbfaf8" stroke-width="3" paint-order="stroke">n = ${pts.length}</text>`);
