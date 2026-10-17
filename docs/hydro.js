@@ -283,7 +283,7 @@ const hPeriodText = (p) => { const x = hSrc().periods[p]; return `${MONTHS[x.mon
 const hSourceWord = () => (hSrcKey() === "ctd" ? "CTD" : "bottle");
 const hUnits = () => (hVar().units && !(hVar().log && hstate.anomaly) ? ` ${hVar().units}` : "");   // a ratio has none
 const hFmt = (v) => (hVar().log ? fmtLog(v) : v.toFixed({ secchi: 0, nitrite: 2, ammonium: 2, oxygen_saturation: 1, dic: 1, alkalinity: 1, ph: 3, temperature: 2, oxygen: 2, nitrate: 1, silicate: 1, spiciness: 2, n2: 2, wm_psa: 0, wm_pew: 0, wm_npcw: 0, dyn_height: 3,
-  z_sigma25: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3));
+  z_sigma25: 0, z_sigma264: 0, nitricline_depth: 0, chl_max_depth: 0, mld: 0 }[hstate.variable === "iso_depth" ? "z_sigma25" : styleKey()] ?? 3));
 
 async function loadHydroMeta() {
   if (!hmeta) hmeta = await getJSON("hydro/meta.json");

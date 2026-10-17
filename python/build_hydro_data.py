@@ -81,7 +81,9 @@ DERIVED_DEPTH_VARIABLES = {
 # One value per cast (a depth), written to <source>/cast.json; CalCOFI's
 # chlorophyll-maximum and mixed layer depths exist for CTD casts only.
 DERIVED_CAST_VARIABLES = {
-    "z_sigma25": {"label": "Depth of σθ 25.0", "units": "m", "column": "zs25", "decimals": 1},
+    # the 25.8 surface since 2026-10-17 (user; was 25.0): key and column kept for existing links
+    "z_sigma25": {"label": "Depth of σθ 25.8", "units": "m", "column": "zs25", "decimals": 1},
+    "z_sigma264": {"label": "Depth of σθ 26.4", "units": "m", "column": "zs264", "decimals": 1, "style": "z_sigma25"},
     "nitricline_depth": {"label": "Nitricline depth", "units": "m", "column": "nitz", "decimals": 1},
     "chl_max_depth": {"label": "Chlorophyll-maximum depth", "units": "m", "column": "chlz", "decimals": 1, "sources": ["ctd"]},
     "mld": {"label": "Mixed layer depth", "units": "m", "column": "mld", "decimals": 1, "sources": ["ctd"]},
@@ -113,7 +115,8 @@ SECTION_LINES = [76.7, 80.0, 83.3, 86.7, 90.0, 93.3]     # 2026-10-17: all six c
 SECTION_COLUMNS = {"temperature": "t", "salinity": "s", "sigma_theta": "d", "oxygen": "o", "nitrate": "no3", "silicate": "sio3",
                    "n2": "n2", "dynamic_height": "dh", "wm_psa": "psa", "wm_pew": "pew", "wm_npcw": "npcw",
                    "chlorophyll": "chl", "phaeopigment": "phae",      # log10 ug/L, as the maps
-                   "nitrite": "no2", "ammonium": "nh4", "oxygen_saturation": "o2s", "dic": "dic", "alkalinity": "alk", "ph": "ph"}
+                   "nitrite": "no2", "ammonium": "nh4", "oxygen_saturation": "o2s", "dic": "dic", "alkalinity": "alk", "ph": "ph",
+                   "spiciness": "sp"}       # spiciness: for the EDA cross-correlation's 0-200 m means (2026-10-17), and sections
 # Water masses view: properties on two isopycnals, from CTD casts only
 # (the companion repo's build_isopycnal_properties.py), written to
 # ctd/iso<surface>.json.

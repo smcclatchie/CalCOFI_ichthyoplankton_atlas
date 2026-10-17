@@ -34,6 +34,7 @@ const XC_HYDRO = [
   { id: "no3", label: "Nitrate", units: "µM", col: "no3" },
   { id: "o", label: "Dissolved oxygen", units: "mL/L", col: "o" },
   { id: "ph", label: "pH", units: "", col: "ph" },
+  { id: "sp", label: "Spiciness", units: "kg m⁻³", col: "sp" },          // added 2026-10-17 (user)
 ];
 const XC_SEASONS = ["winter", "spring", "summer", "autumn"];
 // Zooplankton (user, 2026-10-17): the atlas's datasets, as log10(1 + value), zeros left out
@@ -62,6 +63,9 @@ function xcVariables() {
     ...XC_HYDRO.map((v) => ({ ...v, group: `Hydrography, 0–${XC_DEPTH} m mean` })),
     // integrated chlorophyll replaces the 0-200 m mean chlorophyll (user, 2026-10-17): CalCOFI's own, CTD casts
     { id: "chli", label: "Integrated chlorophyll a, 0–200 m", units: "mg m⁻², log scale; CTD", logAxis: true, group: `Hydrography, 0–${XC_DEPTH} m mean` },
+    // depths of the Water masses view's isopycnals (user, 2026-10-17): per cast, from the profiles
+    { id: "zs25", label: "Depth of σθ 25.8", units: "m", group: "Isopycnal depths" },
+    { id: "zs264", label: "Depth of σθ 26.4", units: "m", group: "Isopycnal depths" },
     { id: "scti", label: "SCTI (SoCal Temperature Index)", group: "Index", units: "°C" },
     ...XC_ZOO.map((z) => ({ ...z, group: "Zooplankton" })),
     ...sp.ichthyo.species.map((t) => ({ id: `f:${t.id}`, label: t.scientific, common: t.common, units: "larvae per 10 m², log scale", log: true, group: "Larval fish, top 10% by abundance" })),
@@ -134,14 +138,15 @@ async function xcDatasetVar(key, spec) {
 async function xcData(id) {
   if (id === "scti") return null;                     // seasonal: handled when pairing
   if (id.startsWith("f:") || id.startsWith("k:")) return xcSpecies(id[0], +id.slice(2));
-  if (id === "chli") return xcCastVar("chli");
+  if (id === "chli" || id === "zs25" || id === "zs264") return xcCastVar(id);
   const zoo = XC_ZOO.find((z) => z.id === id);
   if (zoo) return xcDatasetVar(zoo.id, zoo);
   return xcHydro(XC_HYDRO.find((v) => v.id === id));
 }
 
-// Integrated chlorophyll (CalCOFI's, CTD casts; hydro/<source>/cast.json "chli", log10 mg m-2):
-// per station and season, the mean over its survey months, on a log axis.
+// Per-cast values (hydro/<source>/cast.json): integrated chlorophyll ("chli", CalCOFI's, CTD
+// casts, log10 mg m-2, on a log axis) and the depths of sigma-theta 25.8 and 26.4 ("zs25",
+// "zs264", m); per station and season, the mean over its survey months.
 async function xcCastVar(col) {
   const key = `${xc.source}/cast/${col}`;
   if (xc.cache.has(key)) return xc.cache.get(key);
@@ -356,7 +361,7 @@ async function renderXcorr() {
   const src = hmeta.sources[xc.source];
   const span = xc.mode === "one" ? seasonText({ year: +wy, season: ws }) : xc.mode === "range" ? `${xc.cal}s ${xc.y0}–${xc.y1}` : "all seasons, all years";
   $("xc-note").textContent = `Each point: one station in one season (${xc.lines === "all" ? "core lines 76.7–93.3" : `line ${xc.lines}`}; ${span}${xc.lag ? "; each y one season after its x" : ""}). ` +
-    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale. Zooplankton: plankton displacement volume (bongo); log scale, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
+    `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only); integrated chlorophyll: CalCOFI's, CTD casts, log scale; isopycnal depths and spiciness from the cast profiles. Zooplankton: plankton displacement volume (bongo); log scale, zeros left out. Species: log₁₀(1 + abundance), standard sampling, ` +
     `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; red line: LOWESS smooth (span 2/3; wider, and not robust, for small samples). Abundance axes: log scale, labelled in counts.`;
 }
 
@@ -450,7 +455,7 @@ function writeEdaXcorrHash(params) {
 }
 
 function readEdaXcorrHash(params) {
-  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|chli|no3|o|ph|scti|vol|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
+  const ids = (k) => (params.get(k) || "").split(",").filter((x) => /^(t|s|sp|chli|zs25|zs264|no3|o|ph|scti|vol|[fk]:\d+)$/.test(x)).slice(0, XC_MAX_VARS);
   if (params.has("cx")) xc.x = ids("cx");
   if (params.has("cy")) xc.y = ids("cy");
   if (params.get("cl") === "all" || XC_LINES.includes(+params.get("cl"))) xc.lines = params.get("cl");

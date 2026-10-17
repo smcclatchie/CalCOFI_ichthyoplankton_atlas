@@ -34,7 +34,7 @@
 
 const SECTION_COLUMNS = { temperature: "t", salinity: "s", sigma_theta: "d", oxygen: "o", nitrate: "no3", silicate: "sio3",
   wm_psa: "psa", wm_pew: "pew", wm_npcw: "npcw", chlorophyll: "chl", phaeopigment: "phae",
-  nitrite: "no2", ammonium: "nh4", oxygen_saturation: "o2s", dic: "dic", alkalinity: "alk", ph: "ph" };
+  nitrite: "no2", ammonium: "nh4", oxygen_saturation: "o2s", dic: "dic", alkalinity: "alk", ph: "ph", spiciness: "sp" };
 const SECTION_EXTRA = {
   n2: { label: "Stability (N²)", units: "10⁻⁴ s⁻²", col: "n2", style: "n2", interval: true },
   geovel: { label: "Geostrophic velocity, relative to 500 dbar (poleward +)", units: "cm s⁻¹", style: "salinity", diverging: true, geostrophic: true },
@@ -161,7 +161,7 @@ function sectionProfiles(d, periods, geo, src = hSrc()) {
       if (!geo.x.has(d.st[i]) || geo.x.get(d.st[i]) > geo.xmax) continue;
       if (!acc.has(d.st[i])) acc.set(d.st[i], {});
       const a = acc.get(d.st[i]);
-      for (const col of ["t", "s", "d", "o", "no3", "sio3", "n2", "dh", "psa", "pew", "npcw", "chl", "phae", "no2", "nh4", "o2s", "dic", "alk", "ph"]) {
+      for (const col of ["t", "s", "d", "o", "no3", "sio3", "n2", "dh", "psa", "pew", "npcw", "chl", "phae", "no2", "nh4", "o2s", "dic", "alk", "ph", "sp"]) {
         const v = d[col]?.[i];
         if (v === null || v === undefined) continue;
         a[col] = a[col] || depths.map(() => ({ sum: 0, n: 0 }));
