@@ -332,6 +332,7 @@
             </span>
             <label><input type="checkbox" id="xc-lag"> Lag column 2 by one season</label>
           </div>
+          <button type="button" class="png-btn" data-target="eda-xcorr" data-name="xcorr" title="Download a 300 dpi PNG of the graphic">Print to PNG</button>
           <button type="button" id="xc-close" aria-label="Back to the map">✕</button>
         </header>
         <div class="xc-body collapsed">
@@ -354,6 +355,7 @@
             </div>
             <span class="heat-key">heatwave: <i style="background:#ffc866"></i>moderate <i style="background:#ff6900"></i>strong <i style="background:#9e0000"></i>severe <i style="background:#2d0000"></i>extreme · ◆ non-ENSO · <i class="hk-nino"></i>El Niño · <i class="hk-roni"></i>RONI <i class="hk-scti"></i>SCTI</span>
           </div>
+          <button type="button" class="png-btn" data-target="eda-heat" data-name="heat" title="Download a 300 dpi PNG of the graphic">Print to PNG</button>
           <button type="button" id="heat-close" aria-label="Back to the map">✕</button>
         </header>
         <div id="heat-chart" class="lv-chart"></div>
@@ -375,6 +377,7 @@
             </div>
             <span class="heat-key">shoaling event: <i style="background:#ffc866"></i>moderate <i style="background:#ff6900"></i>strong <i style="background:#9e0000"></i>severe <i style="background:#2d0000"></i>extreme · ◆ non-ENSO · <i class="hk-nino"></i>El Niño · <i class="hk-roni"></i>RONI <i class="hk-scti"></i>SCTI</span>
           </div>
+          <button type="button" class="png-btn" data-target="eda-hyp" data-name="hypoxia" title="Download a 300 dpi PNG of the graphic">Print to PNG</button>
           <button type="button" id="hyp-close" aria-label="Back to the map">✕</button>
         </header>
         <div id="hyp-chart" class="lv-chart"></div>
@@ -402,6 +405,7 @@
             <input id="eda-sec-range" type="range" min="0" max="0" value="0" aria-label="Season">
             <span id="eda-sec-when" class="eda-sec-when"></span>
           </div>
+          <button type="button" class="png-btn" data-target="eda-sections" data-name="watermass_sections" title="Download a 300 dpi PNG of the graphic">Print to PNG</button>
           <button type="button" id="eda-sec-close" aria-label="Back to the map">✕</button>
         </header>
         <div id="eda-sec-charts">
@@ -449,6 +453,8 @@
   <script src="eda_heat.js"></script>
   <script src="eda_hypoxia.js"></script>
   <script src="eda_xcorr.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
   <script src="atlas.js"></script>
+  <script src="print_png.js"></script>
 </body>
 </html>

@@ -390,6 +390,14 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .eda-sections header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .eda-sections h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .eda-sections header > button { margin-left: auto; border: 0; background: none; font-size: 16px; cursor: pointer; color: var(--text-secondary); }
+/* Print to PNG (print_png.js): pushed right, the close button beside it */
+.eda-sections header > button.png-btn { font-size: 12px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text-primary); white-space: nowrap; }
+.eda-sections header > button.png-btn + button { margin-left: 0; }
+.eda-sections header > button.png-btn:disabled { opacity: 0.6; cursor: progress; }
+/* while a PNG renders: no on-screen aids (the outlined panel, the season selectors' boxes and arrows) */
+.png-capture .lv-panel.focus { border-color: transparent; }
+.png-capture .lv-panel h3 select { appearance: none; -webkit-appearance: none; border: 0; background: none; padding: 0; font-weight: 600; }
 .eda-sec-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; font-size: 13px; }
 .eda-sec-controls label { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); }
 .eda-sec-controls .segmented button { padding: 3px 10px; font-size: 12px; }
