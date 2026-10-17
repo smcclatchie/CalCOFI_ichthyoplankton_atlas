@@ -41,7 +41,8 @@ function hypoxicDepth(d, geo, src, lineKey, step) {
 
 const hypoxiaView = makeLineView({
   id: "hyp",
-  defaults: { line: 90, source: "ctd", panels: ["1998-winter", "2015-autumn", "2026-winter"] },
+  // defaults (user, 2026-10-17, from their chosen view): line 90, CTD, autumn 1993, spring 2012, summer 2021
+  defaults: { line: 90, source: "ctd", panels: ["1993-autumn", "2012-spring", "2021-summer"] },
   hash: { line: "xline", source: "xsrc", panels: "xp" },
   col: "o",
   sectionVar: HYPOXIA_VAR,
