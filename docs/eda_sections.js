@@ -10,7 +10,8 @@
 "use strict";
 
 const EDA_SECTION_VARS = ["wm_psa", "wm_pew", "wm_npcw"];     // top to bottom (user, 2026-10-17)
-const edaSec = { line: 90, source: "bottle", key: null, timer: 0, ready: false, token: 0 };
+// default view (user, 2026-10-17): line 90, bottle, spring 2016
+const edaSec = { line: 90, source: "bottle", key: "2016-spring", timer: 0, ready: false, token: 0 };
 
 // The line's seasons with water-mass data, in order: [{ key, season, year, periods }].
 const edaSecSteps = new Map();
