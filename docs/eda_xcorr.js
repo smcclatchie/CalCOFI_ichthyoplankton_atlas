@@ -18,7 +18,7 @@
 //        and reaches 200 m;
 //      SCTI -- the Southern California Temperature Index (Spray gliders, 50 m on
 //        line 90), one value per season, the same for every station;
-//      larval fish and adult krill species in the top quarter by abundance
+//      larval fish and adult krill species in the top 10% by abundance (user; was 25%)
 //        (docs/data/eda_species.json, python/build_eda_species.py), as
 //        log10(1 + abundance): larvae in the CalCOFI bongo net (per 10 m2),
 //        krill adults (per m2), standard sampling; zero catches are left out of
@@ -56,8 +56,8 @@ function xcVariables() {
   return [
     ...XC_HYDRO.map((v) => ({ ...v, group: `Hydrography, 0–${XC_DEPTH} m mean` })),
     { id: "scti", label: "SCTI (SoCal Temperature Index)", group: "Index", units: "°C" },
-    ...sp.ichthyo.species.map((t) => ({ id: `f:${t.id}`, label: t.scientific, common: t.common, units: "larvae per 10 m², log scale", log: true, group: "Larval fish, top 25% by abundance" })),
-    ...sp.krill.species.map((t) => ({ id: `k:${t.id}`, label: t.scientific, units: "adults per m², log scale", log: true, group: "Krill adults, top 25% by abundance" })),
+    ...sp.ichthyo.species.map((t) => ({ id: `f:${t.id}`, label: t.scientific, common: t.common, units: "larvae per 10 m², log scale", log: true, group: "Larval fish, top 10% by abundance" })),
+    ...sp.krill.species.map((t) => ({ id: `k:${t.id}`, label: t.scientific, units: "adults per m², log scale", log: true, group: "Krill adults, top 10% by abundance" })),
   ];
 }
 

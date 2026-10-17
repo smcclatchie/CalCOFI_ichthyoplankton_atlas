@@ -1237,7 +1237,7 @@ const TERNARY_PLOTS = {
   xcorr: {
     native: { panel: "eda-xcorr", render: () => renderXcorr() },
     title: "Cross-correlation: scatterplot matrix",
-    hint: "Station values on the core lines, crossed as a matrix of scatterplots with Pearson's r: hydrography (0–200 m means), the SoCal Temperature Index, and the most abundant larval fish and krill species. One season, all seasons, or one season over a range of years; column 2 can lag column 1 by a season.",
+    hint: "Station values on the core lines, crossed as a matrix of scatterplots with Pearson's r: hydrography (0–200 m means), the SoCal Temperature Index, and the most abundant larval fish and krill species (top 10%). One season, all seasons, or one season over a range of years; column 2 can lag column 1 by a season.",
   },
   hypoxia: {
     native: { panel: "eda-hyp", render: () => renderEdaHypoxia() },

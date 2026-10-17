@@ -3,14 +3,15 @@
 """
 The species offered by the EDA view's cross-correlation matrix (2026-10-17,
 user): larval fish and adult krill species "in the upper 25th percentile of
-abundance" -> docs/data/eda_species.json.
+abundance" -> docs/data/eda_species.json
+(top 10% since 2026-10-17, user; was 25%).
 
 From the atlas's own data (docs/data/taxa, docs/data/zoo/krill/taxa): species
 only (a two-word scientific name; no higher taxa, no combined entries), ranked
 by mean abundance over every standard-sampling occupation on the core CalCOFI
 lines (76.7-93.3), absences as zero -- larvae in the CalCOFI bongo net (CB,
-per 10 m2), krill adults (per m2) -- keeping the top quarter of the species
-with any catch there.
+per 10 m2), krill adults (per m2) -- keeping the top TOP_FRACTION (10%) of the
+species with any catch there.
 
 Usage:  python build_eda_species.py   (after build_atlas_data.py / build_zooplankton_data.py)
 """
@@ -21,6 +22,7 @@ import os
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO_DIR, "docs", "data")
 CORE_LINES = {76.7, 80.0, 83.3, 86.7, 90.0, 93.3}
+TOP_FRACTION = 0.10
 DATASETS = {"ichthyo": ("", "CB", "larva"), "krill": ("zoo/krill", "KR", "adult")}
 
 
@@ -46,7 +48,7 @@ def ranked(sub, net_code, stage_key):
         if total > 0:
             out.append({"id": t["id"], "key": t["key"], "scientific": name, "common": t.get("common"), "mean": round(total / n_occ, 3)})
     out.sort(key=lambda x: -x["mean"])
-    return out[: max(1, round(len(out) / 4))], len(out), n_occ
+    return out[: max(1, round(len(out) * TOP_FRACTION))], len(out), n_occ
 
 
 def main():
