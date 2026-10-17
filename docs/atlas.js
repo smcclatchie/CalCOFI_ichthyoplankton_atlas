@@ -1267,6 +1267,8 @@ function updateLayerControls() {
   const hydro = state.layer === "hydro";
   setToggle("layer-toggle", edaOpen ? "eda" : !hydro ? viewOf() : hView());
   document.querySelector(".layout").classList.toggle("eda-mode", edaOpen);
+  // The sidebar's data note is about the ichthyoplankton data: shown in that view only (user, 2026-10-17).
+  document.querySelector(".controls .about").hidden = edaOpen || state.layer === "hydro" || viewOf() !== "ichthyo";
   document.querySelectorAll(".eda-only").forEach((e) => { e.hidden = !edaOpen; });
   const plot = TERNARY_PLOTS[edaPlot];
   $("ternary-panel").hidden = !edaOpen || Boolean(plot.native);
