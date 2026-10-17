@@ -20,7 +20,8 @@
 //      larval fish and adult krill species in the top quarter by abundance
 //        (docs/data/eda_species.json, python/build_eda_species.py), as
 //        log10(1 + abundance): larvae in the CalCOFI bongo net (per 10 m2),
-//        krill adults (per m2), standard sampling, absences as zero.
+//        krill adults (per m2), standard sampling; zero catches are left out of
+//        the pairs (user, 2026-10-17), so a cell shows where the species was caught.
 "use strict";
 
 const XC_LINES = [76.7, 80, 83.3, 86.7, 90, 93.3];
@@ -138,7 +139,10 @@ function xcPairs(dx, dy, idx, idy, seasons) {
     if (!mx || !my) continue;
     for (const [k, x] of mx) if (inLine(k) && my.has(k)) pts.push([x, my.get(k)]);
   }
-  return pts;
+  // Zero catches left out (user, 2026-10-17): a station-season where a species variable is
+  // zero (log10(1 + 0)) is not a pair, so r and the line describe where the species was caught.
+  const isSpecies = (id) => id.startsWith("f:") || id.startsWith("k:");
+  return pts.filter(([x, y]) => !(isSpecies(idx) && x === 0) && !(isSpecies(idy) && y === 0));
 }
 
 function pearson(pts) {
@@ -229,7 +233,7 @@ async function renderXcorr() {
   const span = xc.mode === "one" ? seasonText({ year: +wy, season: ws }) : xc.mode === "range" ? `${xc.cal}s ${xc.y0}–${xc.y1}` : "all seasons, all years";
   $("xc-note").textContent = `Each point: one station in one season (${xc.lines === "all" ? "core lines 76.7–93.3" : `line ${xc.lines}`}; ${span}${xc.lag ? "; rows one season after columns" : ""}). ` +
     `Hydrography: 0–${XC_DEPTH} m mean of ${src.label} casts reaching ${XC_DEPTH} m (pH: CTD only). Species: log₁₀(1 + abundance), standard sampling, ` +
-    `larvae in the bongo net, krill adults. SCTI: one value per season for every station. r: Pearson correlation; line: least squares.`;
+    `larvae in the bongo net, krill adults; zero catches left out. SCTI: one value per season for every station. r: Pearson correlation; line: least squares.`;
 }
 
 function drawXcMatrix(X, Y, data, seasons) {
