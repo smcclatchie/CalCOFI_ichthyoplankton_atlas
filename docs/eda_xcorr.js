@@ -250,6 +250,13 @@ function setupXcorr() {
   $("xc-next").addEventListener("click", () => xcStep(1));
   $("xc-range").addEventListener("input", (e) => { xc.when = xc.allSeasons[+e.target.value]; renderXcorr(); writeHash(); });
   $("xc-close").addEventListener("click", () => setEda(false));
+  // the variable lists: hidden by default (the defaults are chosen), shown to change them
+  $("xc-vars-toggle").addEventListener("click", () => {
+    const body = document.querySelector("#eda-xcorr .xc-body"), open = body.classList.toggle("collapsed") === false;
+    $("xc-vars-toggle").setAttribute("aria-expanded", String(open));
+    $("xc-vars-toggle").textContent = open ? "Variables ◂" : "Variables ▸";
+    renderXcorr();
+  });
 }
 
 function xcStep(delta) {

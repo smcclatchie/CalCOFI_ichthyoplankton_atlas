@@ -309,6 +309,7 @@
         <header>
           <h2>Cross-correlation: scatterplot matrix</h2>
           <div class="eda-sec-controls">
+            <button type="button" id="xc-vars-toggle" class="xc-toggle" aria-expanded="false">Variables ▸</button>
             <label>Line <select id="xc-line"></select></label>
             <div class="segmented" id="xc-source" role="radiogroup" aria-label="Hydrography source">
               <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle</button>
@@ -333,7 +334,7 @@
           </div>
           <button type="button" id="xc-close" aria-label="Back to the map">✕</button>
         </header>
-        <div class="xc-body">
+        <div class="xc-body collapsed">
           <div class="xc-vars">
             <div><div class="xc-colhead">Column 1 (x)</div><div id="xc-vars-x" class="xc-list"></div></div>
             <div><div class="xc-colhead">Column 2 (y)</div><div id="xc-vars-y" class="xc-list"></div></div>

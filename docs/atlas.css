@@ -417,6 +417,10 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 #heat-note, #hyp-note, #xc-note { margin: 0; font-size: 11px; }
 /* EDA cross-correlation: variable lists (two columns) beside the scatterplot matrix */
 .xc-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 380px 1fr; grid-template-rows: minmax(0, 1fr); gap: 10px; overflow: hidden; }
+.xc-body.collapsed { grid-template-columns: 1fr; }           /* the variable lists hidden: the matrix takes the width */
+.xc-body.collapsed .xc-vars { display: none; }
+.xc-toggle { font-size: 12px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; }
+.xc-toggle[aria-expanded="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
 .xc-vars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-height: 0; }
 .xc-vars > div { display: flex; flex-direction: column; min-height: 0; }
 .xc-colhead { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
