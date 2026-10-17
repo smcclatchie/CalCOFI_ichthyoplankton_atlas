@@ -414,7 +414,20 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .lv-stats { font-size: 11px; color: var(--text-secondary); min-height: 1.3em; }
 .lv-plot { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .lv-plot svg { display: block; }
-#heat-note, #hyp-note { margin: 0; font-size: 11px; }
+#heat-note, #hyp-note, #xc-note { margin: 0; font-size: 11px; }
+/* EDA cross-correlation: variable lists (two columns) beside the scatterplot matrix */
+.xc-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 380px 1fr; gap: 10px; }
+.xc-vars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-height: 0; }
+.xc-vars > div { display: flex; flex-direction: column; min-height: 0; }
+.xc-colhead { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+.xc-list { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 11.5px; }
+.xc-list label { display: flex; gap: 4px; align-items: flex-start; padding: 1px 0; cursor: pointer; line-height: 1.25; }
+.xc-group { font-size: 10.5px; font-weight: 700; color: var(--text-secondary); margin: 6px 0 2px; text-transform: none; }
+#xc-matrix { position: relative; min-height: 0; overflow: hidden; }
+#xc-matrix svg { display: block; }
+#xc-y0, #xc-y1 { width: 4.5em; font-size: 12px; }
+#xc-one input[type=range] { width: 160px; }
+#xc-one[hidden], #xc-range-box[hidden] { display: none; }
 .heat-key { display: flex; gap: 5px; align-items: center; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
 .heat-key i { display: inline-block; width: 10px; height: 10px; margin-left: 6px; }
 .heat-key .hk-warm { background: #c0392b; } .heat-key .hk-cool { background: #2f6fb0; } .heat-key .hk-mhw { background: #f08c00; }

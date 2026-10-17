@@ -189,6 +189,7 @@
           <button type="button" role="radio" data-value="sections" aria-checked="false">Water-mass sections: PSA, PEW and NPCW along a line</button>
           <button type="button" role="radio" data-value="heat" aria-checked="false">Heat content: El Niño and marine heatwaves</button>
           <button type="button" role="radio" data-value="hypoxia" aria-checked="false">Hypoxic layer: depth of 1.4 mL/L oxygen</button>
+          <button type="button" role="radio" data-value="xcorr" aria-checked="false">Cross-correlation: scatterplot matrix</button>
           <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae (winter and spring)</button>
           <button type="button" role="radio" data-value="krill" aria-checked="false">Ternary plot: water masses vs. krill assemblages (winter and spring)</button>
         </div>
@@ -304,6 +305,43 @@
         </header>
         <iframe id="ternary-frame" title="Ternary plot" loading="lazy"></iframe>
       </section>
+      <section id="eda-xcorr" class="eda-sections" hidden aria-label="Cross-correlation">
+        <header>
+          <h2>Cross-correlation: scatterplot matrix</h2>
+          <div class="eda-sec-controls">
+            <label>Line <select id="xc-line"></select></label>
+            <div class="segmented" id="xc-source" role="radiogroup" aria-label="Hydrography source">
+              <button type="button" role="radio" data-value="bottle" aria-checked="true">Bottle</button>
+              <button type="button" role="radio" data-value="ctd" aria-checked="false">CTD</button>
+            </div>
+            <label>Time <select id="xc-mode">
+              <option value="one">One season</option>
+              <option value="all">All seasons, all years</option>
+              <option value="range">One season, a range of years</option>
+            </select></label>
+            <span id="xc-one" class="stepper" hidden>
+              <button type="button" id="xc-prev" aria-label="Previous season">◀</button>
+              <input id="xc-range" type="range" min="0" max="0" value="0" aria-label="Season">
+              <button type="button" id="xc-next" aria-label="Next season">▶</button>
+              <span id="xc-when" class="eda-sec-when"></span>
+            </span>
+            <span id="xc-range-box" hidden>
+              <select id="xc-cal" aria-label="Season"><option value="winter">Winter</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option></select>
+              <input id="xc-y0" type="number" min="1949" max="2026" aria-label="From year"> – <input id="xc-y1" type="number" min="1949" max="2026" aria-label="To year">
+            </span>
+            <label><input type="checkbox" id="xc-lag"> Lag column 2 by one season</label>
+          </div>
+          <button type="button" id="xc-close" aria-label="Back to the map">✕</button>
+        </header>
+        <div class="xc-body">
+          <div class="xc-vars">
+            <div><div class="xc-colhead">Column 1 (x)</div><div id="xc-vars-x" class="xc-list"></div></div>
+            <div><div class="xc-colhead">Column 2 (y)</div><div id="xc-vars-y" class="xc-list"></div></div>
+          </div>
+          <div id="xc-matrix"></div>
+        </div>
+        <p class="hint" id="xc-note"></p>
+      </section>
       <section id="eda-heat" class="eda-sections" hidden aria-label="Heat content">
         <header>
           <h2>Heat content, 0–200 m: El Niño and marine heatwaves</h2>
@@ -409,6 +447,7 @@
   <script src="eda_lineview.js"></script>
   <script src="eda_heat.js"></script>
   <script src="eda_hypoxia.js"></script>
+  <script src="eda_xcorr.js"></script>
   <script src="atlas.js"></script>
 </body>
 </html>
