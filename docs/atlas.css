@@ -474,3 +474,10 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .legend-bar { margin-top: 2px; }
 .colour-bar { display: block; max-width: 100%; height: auto; }
 .map-label .bar-title { display: block; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+
+/* lat/long grid labels (atlas.js setupGridLabels): tabs along the map's edges, over the map, under the panels */
+.grid-labels { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.grid-labels span { position: absolute; height: 14px; line-height: 14px; font-size: 10px; color: #3d3c38; text-align: center;
+  background: rgba(255, 255, 255, 0.82); border-radius: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.grid-labels .gl-lon { width: 38px; }
+.grid-labels .gl-lat { width: 34px; }

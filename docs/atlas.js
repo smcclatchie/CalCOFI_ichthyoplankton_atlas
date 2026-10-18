@@ -2289,15 +2289,75 @@ function layoutBathyLabels() {
 
 // ----------------------------------------------------------------- map --
 
+// Latitude/longitude grid, every 1 degree (user, 2026-10-18; was 5 degrees, unlabelled): faint
+// lines over the data fields (hydro layers are inserted under "graticule") but under the land,
+// depth contours and stations; every 5th line a little stronger. Labels: setupGridLabels().
+const GRID_LON = [-150, -100], GRID_LAT = [10, 52];
 function graticule() {
   const features = [];
-  for (let lon = -140; lon <= -105; lon += 5) {
-    features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [[lon, 10], [lon, 50]] } });
+  for (let lon = GRID_LON[0]; lon <= GRID_LON[1]; lon++) {
+    features.push({ type: "Feature", properties: { major: lon % 5 === 0 }, geometry: { type: "LineString", coordinates: [[lon, GRID_LAT[0]], [lon, GRID_LAT[1]]] } });
   }
-  for (let lat = 15; lat <= 45; lat += 5) {
-    features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [[-145, lat], [-100, lat]] } });
+  for (let lat = GRID_LAT[0]; lat <= GRID_LAT[1]; lat++) {
+    features.push({ type: "Feature", properties: { major: lat % 5 === 0 }, geometry: { type: "LineString", coordinates: [[GRID_LON[0], lat], [GRID_LON[1], lat]] } });
   }
   return { type: "FeatureCollection", features };
+}
+
+// Grid labels in small tabs along the map's edges -- latitude left and right, longitude top and
+// bottom -- so they never sit on the data; a tab that would overlap a panel, the legend, the logo
+// or the map controls is left out, and when the lines are too close together for every label, every
+// 2nd or 5th is labelled. Redrawn as the map moves and as panels open and close.
+function setupGridLabels() {
+  const area = document.querySelector(".map-area");
+  const layer = document.createElement("div");
+  layer.className = "grid-labels";
+  layer.setAttribute("aria-hidden", "true");
+  $("map").after(layer);
+  const fmt = (v, pos, neg) => `${Math.abs(v)}°${v >= 0 ? pos : neg}`;
+  let queued = false;
+  const draw = () => {
+    queued = false;
+    const box = area.getBoundingClientRect();
+    if (!box.width) return;
+    // whatever sits over the map: its overlays (not the map or this layer) and the map's own controls
+    const blockers = [...area.children].filter((el) => el !== layer && el.id !== "map" && !el.hidden && el.offsetParent !== null)
+      .concat([...document.querySelectorAll(".map-area .maplibregl-ctrl, .brand-logo")])
+      .map((el) => el.getBoundingClientRect()).filter((r) => r.width && r.height);
+    const clash = (r) => blockers.some((b) => r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top);
+    const b = map.getBounds(), c = map.getCenter();
+    const step = (px) => [1, 2, 5, 10].find((k) => px * k >= 34) || 10;           // degrees between labels
+    const pxLon = Math.abs(map.project([c.lng + 1, c.lat]).x - map.project([c.lng, c.lat]).x);
+    const pxLat = Math.abs(map.project([c.lng, c.lat + 0.5]).y - map.project([c.lng, c.lat - 0.5]).y);
+    const html = [];
+    const place = (cls, text, left, top, w, h) => {
+      const r = { left: box.left + left, right: box.left + left + w, top: box.top + top, bottom: box.top + top + h };
+      if (left < 0 || top < 0 || left + w > box.width || top + h > box.height || clash(r)) return;
+      html.push(`<span class="${cls}" style="left:${left.toFixed(1)}px;top:${top.toFixed(1)}px">${text}</span>`);
+    };
+    const W = 38, H = 14;
+    const kLon = step(pxLon), kLat = step(pxLat * 1.4);
+    for (let lon = Math.ceil(b.getWest()); lon <= Math.floor(b.getEast()); lon++) {
+      if (lon % kLon) continue;
+      const x = map.project([lon, c.lat]).x;
+      place("gl-lon", fmt(lon, "E", "W"), x - W / 2, 2, W, H);
+      place("gl-lon", fmt(lon, "E", "W"), x - W / 2, box.height - H - 2, W, H);
+    }
+    for (let lat = Math.ceil(b.getSouth()); lat <= Math.floor(b.getNorth()); lat++) {
+      if (lat % kLat) continue;
+      const y = map.project([c.lng, lat]).y;
+      place("gl-lat", fmt(lat, "N", "S"), 2, y - H / 2, W - 4, H);
+      place("gl-lat", fmt(lat, "N", "S"), box.width - (W - 4) - 2, y - H / 2, W - 4, H);
+    }
+    layer.innerHTML = html.join("");
+  };
+  const queue = () => { if (!queued) { queued = true; requestAnimationFrame(draw); } };
+  map.on("move", queue);
+  map.on("resize", queue);
+  map.on("load", queue);
+  // panels opening and closing change what the labels must avoid without moving the map
+  new MutationObserver(queue).observe(area, { subtree: true, attributes: true, attributeFilter: ["hidden", "class", "style"], childList: true });
+  queue();
 }
 
 function createMap() {
@@ -2319,7 +2379,8 @@ function createMap() {
       },
       layers: [
         { id: "ocean", type: "background", paint: { "background-color": "#f3f6f9" } },
-        { id: "graticule", type: "line", source: "graticule", paint: { "line-color": "#dfe5ea", "line-width": 0.6 } },
+        { id: "graticule", type: "line", source: "graticule",
+          paint: { "line-color": "#1f1e1c", "line-opacity": ["case", ["get", "major"], 0.32, 0.17], "line-width": ["case", ["get", "major"], 0.8, 0.5] } },
         { id: "land", type: "fill", source: "land", paint: { "fill-color": "#e8e6df" } },
         { id: "coast", type: "line", source: "land", paint: { "line-color": "#9a9890", "line-width": 0.6 } },
         // Depth contours (200-4000 m), the same for every survey (build_bathymetry.py): grey on a
@@ -2400,6 +2461,7 @@ function createMap() {
   map.on("zoomend", () => { if (lastLabelled) placeLineLabels(...lastLabelled); });
   map.on("resize", placeLogo);
   map.on("idle", placeLogo);
+  setupGridLabels();
   return new Promise((resolve) => map.on("load", () => { addHydroLayers(); mapReady = true; loadBathymetry(); resolve(); }));
 }
 
