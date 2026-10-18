@@ -54,7 +54,7 @@ async function renderPelagics() {
     `${a.lines[0]}–${a.lines[a.lines.length - 1]} (${a.gridStations} stations, ${Math.round(a.areaKm2 / 1000)}k km²). Each species uses the cruises ` +
     `(survey months) of its spawning season covering ≥ ${Math.round(a.minCoverage * 100)}% of the grid, marked under the axis; annual values ` +
     `average those cruises. Range: area holding ${Math.round(a.kdeLevel * 100)}% of a kernel density (${a.kdeBandwidthKm} km) of tows with larvae. ` +
-    `Vertical lines: El Niño winters (Dec–Feb RONI ≥ +0.5; solid ≥ +1.5), at the year they end. r: Pearson, log abundance vs log range (or species vs species), range lagging by the years shown; dashed: 5% significance allowing for ` +
+    `Black lines: least-squares regression of range (y, 1000 km²) on log abundance (x, larvae per 10 m²). Vertical lines: El Niño winters (Dec–Feb RONI ≥ +0.5; solid ≥ +1.5), at the year they end. r: Pearson, log abundance vs range (or species vs species, log abundances), range lagging by the years shown; dashed: 5% significance allowing for ` +
     `autocorrelation (Pyper & Peterman 1998). MacCall's basin hypothesis: range grows with abundance (cf. Saraux et al. 2014).`;
   drawPelSeries($("pel-chart"), d);
   drawPelPanels($("pel-panels"), d);
@@ -141,7 +141,7 @@ function drawPelSeries(box, d) {
 
 // ---- per-species panels and the succession column ---------------------------------
 function drawPelPanels(box, d) {
-  box.innerHTML = d.species.map((sp) => `<div class="pel-panel"><h3 style="color:${sp.color}">${pelEsc(sp.name)}: abundance and range</h3>` +
+  box.innerHTML = d.species.map((sp) => `<div class="pel-panel"><h3 style="color:${sp.color}">${pelEsc(sp.name)}: abundance vs. range</h3>` +
     `<div class="pel-scatter"></div><div class="pel-ccf"></div></div>`).join("") +
     `<div class="pel-panel"><h3>Succession: species against species</h3><div class="pel-between"></div></div>`;
   const panels = box.querySelectorAll(".pel-panel");
@@ -152,9 +152,11 @@ function drawPelPanels(box, d) {
   const name = (k) => d.species.find((s) => s.key === k);
   const between = panels[panels.length - 1].querySelector(".pel-between");
   between.innerHTML = d.between.map(() => `<div class="pel-ccf-small"></div>`).join("");
-  between.querySelectorAll(".pel-ccf-small").forEach((el, i) => {
-    const b = d.between[i];
-    drawPelCcf(el, b.ccf, "#5b5a55", `${name(b.b).key} lag after ${name(b.a).key} (years)`, `${name(b.a).name} vs ${name(b.b).name}`);
+  // one x-axis title, under the bottom chart (user, 2026-10-18: three were cut off)
+  const smalls = between.querySelectorAll(".pel-ccf-small");
+  smalls.forEach((el, i) => {
+    const b = d.between[i], last = i === smalls.length - 1;
+    drawPelCcf(el, b.ccf, "#5b5a55", last ? "lag of the second species (years)" : "", `${name(b.a).name} vs ${name(b.b).name}`);
   });
 }
 
@@ -179,6 +181,16 @@ function drawPelScatter(box, sp) {
   for (const [x, y, r] of pts) {
     parts.push(`<circle cx="${sx(x)}" cy="${sy(y)}" r="2.6" fill="${sp.color}" fill-opacity="0.6"><title>${r.year}: ${r.abundance} larvae/10 m², range ${Math.round(r.range / 1000)}k km²</title></circle>`);
   }
+  // least-squares regression of range on log abundance, as plotted (user, 2026-10-18)
+  const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
+  const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0);
+  const slope = sxx > 0 ? sxy / sxx : 0, icpt = my - slope * mx;
+  const syy = pts.reduce((a, p) => a + (p[1] - my) ** 2, 0), r2 = syy > 0 ? (sxy * sxy) / (sxx * syy) : 0;
+  const xa = Math.min(...pts.map((p) => p[0])), xb = Math.max(...pts.map((p) => p[0]));
+  parts.push(`<line x1="${sx(xa)}" y1="${sy(icpt + slope * xa)}" x2="${sx(xb)}" y2="${sy(icpt + slope * xb)}" stroke="#ffffff" stroke-width="4" stroke-opacity="0.9"/>`);
+  parts.push(`<line x1="${sx(xa)}" y1="${sy(icpt + slope * xa)}" x2="${sx(xb)}" y2="${sy(icpt + slope * xb)}" stroke="#1f1e1c" stroke-width="1.8"/>`);
+  parts.push(`<text x="${m.l + 6}" y="${m.t + 37}" font-size="9.5" fill="#1f1e1c" ${pelFont} stroke="#fbfaf8" stroke-width="3" paint-order="stroke">` +
+    `y = ${icpt.toFixed(0)} ${slope >= 0 ? "+" : "−"} ${Math.abs(slope).toFixed(0)}·log₁₀(x + 1), R² = ${r2.toFixed(2)}</text>`);
   const c0 = sp.ccf.find((c) => c.lag === 0);
   if (c0 && c0.r !== null) {
     const sig = Math.abs(c0.r) > c0.crit;
@@ -190,7 +202,7 @@ function drawPelScatter(box, sp) {
 
 function drawPelCcf(box, ccf, color, xLabel, title) {
   const W = box.clientWidth || 300, H = Math.max(90, box.clientHeight || 120);
-  const m = { l: 44, r: 8, t: title ? 20 : 8, b: 27 };
+  const m = { l: 44, r: 8, t: title ? 20 : 8, b: xLabel ? 27 : 15 };
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
   const lags = ccf.map((c) => c.lag), L = Math.max(...lags);
   const sx = (lag) => m.l + ((lag + L + 0.5) / (2 * L + 1)) * pw, sy = (r) => m.t + ph / 2 - (r * ph) / 2;
@@ -209,7 +221,7 @@ function drawPelCcf(box, ccf, color, xLabel, title) {
       `<title>lag ${c.lag}: r = ${c.r}, n = ${c.n} (effective ${c.nEff}), 5% critical r = ${c.crit}</title></rect>`);
     for (const s of [1, -1]) parts.push(`<line x1="${x - bw / 2 - 2}" x2="${x + bw / 2 + 2}" y1="${sy(s * c.crit)}" y2="${sy(s * c.crit)}" stroke="#1f1e1c" stroke-width="1" stroke-dasharray="2 1.5"/>`);
   }
-  parts.push(`<text x="${m.l + pw / 2}" y="${H - 3}" text-anchor="middle" ${pelTick}>${pelEsc(xLabel)}</text>`);
+  if (xLabel) parts.push(`<text x="${m.l + pw / 2}" y="${H - 3}" text-anchor="middle" ${pelTick}>${pelEsc(xLabel)}</text>`);
   parts.push(`<text transform="translate(${11} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${pelTick}>r</text>`);
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Cross-correlation">${parts.join("")}</svg>`;
 }

@@ -53,8 +53,10 @@ holding KDE_LEVEL (90%) of that density, km2 (0 with no larvae). Averaged over
 the year's selected cruises, like abundance. Also kept: the fraction of
 core-grid tows with larvae (the classical "proportion positive").
 
-Cross-correlation: Pearson r between log10(abundance + 1) and log10(range + 1)
-at lags -5..+5 years (range in year t + lag against abundance in year t), over
+Cross-correlation: Pearson r between log10(abundance + 1) and the range (km2,
+untransformed: it is a bounded area, and years without larvae have range 0,
+which a log would pin far below the rest; 2026-10-18, so r matches the view's
+scatterplots and regression lines) at lags -5..+5 years (range in year t + lag against abundance in year t), over
 the years both exist. Significance allows for autocorrelation (Pyper &
 Peterman 1998, effective sample size from the two series' autocorrelations to
 lag N/5); crit = the two-sided 5% critical r for that effective N. The same is
@@ -246,7 +248,7 @@ def main():
                  "range": round(float(np.mean([c["range"] for c in by_year[y]]))),
                  "positive": round(float(np.mean([c["positive"] for c in by_year[y]])), 3)} for y in years]
         la = [math.log10(r["abundance"] + 1) for r in rows]
-        lr = [math.log10(r["range"] + 1) for r in rows]
+        lr = [r["range"] / 1000.0 for r in rows]
         series[sp["key"]] = (years, la)
         result["species"].append({**{k: sp[k] for k in ("key", "name", "scientific", "id", "color")},
                                   "season": [MONTHS[m - 1] for m in sp["months"]], "cruises": cruises, "years": rows,
