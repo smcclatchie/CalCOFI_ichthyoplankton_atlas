@@ -26,7 +26,7 @@ const pelLog = (a) => Math.log10(a + 1);
 const pelCount = (v) => (v >= 1000 ? `${v / 1000}k` : String(v));
 
 async function loadPelagics() {
-  if (!pel.data) pel.data = await (await fetch("data/eda_pelagics.json")).json();
+  if (!pel.data) [pel.data, pel.roni] = await Promise.all(["data/eda_pelagics.json", "data/roni.json"].map(async (u) => (await fetch(u)).json()));
   return pel.data;
 }
 
@@ -45,89 +45,98 @@ async function renderPelagics() {
   setupPelagics();
   const d = await loadPelagics();
   setToggle("pel-scale", pel.scale);
-  $("pel-key").innerHTML = d.species.map((sp) =>
-    `<span class="pel-key-item"><i style="background:${sp.color}"></i>${pelEsc(sp.name)} <span class="pel-season">(${sp.season[0]}–${sp.season[sp.season.length - 1]})</span></span>`).join(" ");
+  // the species are named in their own panels; the key explains the El Nino lines
+  $("pel-key").innerHTML = `<span class="pel-key-item"><i class="pel-nino-weak"></i>El Niño winter (Dec–Feb RONI ≥ +0.5)</span>` +
+    `<span class="pel-key-item"><i class="pel-nino-strong"></i>strong (≥ +1.5)</span>`;
   // the note first: its height sets the charts' heights
   const a = d.area;
   $("pel-note").textContent = `Larvae per 10 m² (standard oblique net: ring net to 1977, bongo from 1978), core grid of lines ` +
     `${a.lines[0]}–${a.lines[a.lines.length - 1]} (${a.gridStations} stations, ${Math.round(a.areaKm2 / 1000)}k km²). Each species uses the cruises ` +
     `(survey months) of its spawning season covering ≥ ${Math.round(a.minCoverage * 100)}% of the grid, marked under the axis; annual values ` +
     `average those cruises. Range: area holding ${Math.round(a.kdeLevel * 100)}% of a kernel density (${a.kdeBandwidthKm} km) of tows with larvae. ` +
-    `r: Pearson, log abundance vs log range (or species vs species), range lagging by the years shown; dashed: 5% significance allowing for ` +
+    `Vertical lines: El Niño winters (Dec–Feb RONI ≥ +0.5; solid ≥ +1.5), at the year they end. r: Pearson, log abundance vs log range (or species vs species), range lagging by the years shown; dashed: 5% significance allowing for ` +
     `autocorrelation (Pyper & Peterman 1998). MacCall's basin hypothesis: range grows with abundance (cf. Saraux et al. 2014).`;
   drawPelSeries($("pel-chart"), d);
   drawPelPanels($("pel-panels"), d);
 }
 
-// ---- the time series ---------------------------------------------------------
+// ---- the time series: one panel per species (user, 2026-10-18: overlaid lines were confusing) --
+// El Nino winters as vertical reference lines (user): Dec-Feb RONI >= +0.5 (data/roni.json),
+// drawn through the year the winter ends in -- the spawning season that follows it; strong ones
+// (>= +1.5) darker and labelled.
 function drawPelSeries(box, d) {
-  const W = box.clientWidth || 900, H = Math.max(200, box.clientHeight || 300);
-  const rowsH = d.species.length * 8;
-  const m = { l: 64, r: 14, t: 8, b: 34 + rowsH + 6 };
-  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const W = box.clientWidth || 900, H = Math.max(300, box.clientHeight || 420);
+  const z = pel.scale === "z", n = d.species.length;
+  const m = { l: 64, r: 14, t: 14, b: 34 };
+  const gap = 18, rowH = 7;                                // a cruise row under each panel, then a gap
+  const ph = (H - m.t - m.b - n * (rowH + 4) - (n - 1) * gap) / n, pw = W - m.l - m.r;
   const sx = (t) => m.l + ((t - PEL_X0) / (PEL_X1 - PEL_X0)) * pw;
-  const z = pel.scale === "z";
-  // values per species: log10(abundance + 1), or its z-score smoothed by a 3-year running mean
-  const series = d.species.map((sp) => {
-    const v = sp.years.map((r) => [r.year, pelLog(r.abundance)]);
-    if (!z) return v;
-    const vals = v.map((p) => p[1]), mu = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mu) ** 2, 0) / vals.length) || 1;
-    const byYear = new Map(v.map(([y, x]) => [y, (x - mu) / sd]));
-    return v.map(([y]) => {
-      const w = [y - 1, y, y + 1].filter((k) => byYear.has(k)).map((k) => byYear.get(k));
-      return [y, w.reduce((a, b) => a + b, 0) / w.length];
-    });
-  });
-  let lo, hi;
-  if (z) { lo = -2.5; hi = 2.5; } else { lo = 0; hi = Math.ceil(Math.max(...series.flat().map((p) => p[1])) * 2) / 2; }
-  const sy = (v) => m.t + ph - ((v - lo) / (hi - lo)) * ph;
-  const parts = [`<rect x="${m.l}" y="${m.t}" width="${pw}" height="${ph}" fill="#fbfaf8" stroke="#dcdad3"/>`];
-  if (z) {
-    for (let v = -2; v <= 2; v++) {
-      parts.push(`<line x1="${m.l}" x2="${m.l + pw}" y1="${sy(v)}" y2="${sy(v)}" stroke="${v === 0 ? "#85837c" : "#ecebe6"}"/>`);
-      parts.push(`<text x="${m.l - 6}" y="${sy(v) + 3.5}" text-anchor="end" ${pelTick}>${v > 0 ? "+" : ""}${v}</text>`);
+  const parts = [];
+  const top = (i) => m.t + i * (ph + rowH + 4 + gap);
+  const bottom = top(n - 1) + ph;
+  // El Nino lines, behind everything, through all three panels
+  const nino = Object.entries(pel.roni.seasons).filter(([k, r]) => k.endsWith("-winter") && r >= 0.5)
+    .map(([k, r]) => [+k.slice(0, 4), r]).filter(([y]) => y >= PEL_X0 && y <= PEL_X1);
+  for (const [y, r] of nino) {
+    const strong = r >= 1.5, x = sx(y + 0.5);
+    for (let i = 0; i < n; i++) {
+      parts.push(`<line x1="${x}" x2="${x}" y1="${top(i)}" y2="${top(i) + ph}" stroke="${strong ? "#6f6d66" : "#b9b7b0"}" stroke-width="${strong ? 1.6 : 1}" stroke-dasharray="${strong ? "none" : "3 2"}"><title>El Niño winter ${y - 1}–${String(y).slice(2)}: RONI ${r > 0 ? "+" : ""}${r}</title></line>`);
     }
-    parts.push(`<text transform="translate(${m.l - 44} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${pelTick}>standardised log abundance (3-yr mean)</text>`);
-  } else {
-    for (const v of [0, 1, 10, 100, 1000, 10000, 100000]) {
-      const y = pelLog(v);
-      if (y > hi + 1e-9) break;
-      parts.push(`<line x1="${m.l}" x2="${m.l + pw}" y1="${sy(y)}" y2="${sy(y)}" stroke="${v === 0 ? "#85837c" : "#ecebe6"}"/>`);
-      parts.push(`<text x="${m.l - 6}" y="${sy(y) + 3.5}" text-anchor="end" ${pelTick}>${pelCount(v)}</text>`);
-    }
-    parts.push(`<text transform="translate(${m.l - 44} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${pelTick}>larvae per 10 m² (log scale)</text>`);
+    if (strong) parts.push(`<text x="${x}" y="${m.t - 3}" text-anchor="middle" font-size="9" font-weight="600" fill="#6f6d66" ${pelFont}>${y - 1}–${String(y).slice(2)}</text>`);
   }
-  // the lines (broken across missing years), then the points
   d.species.forEach((sp, i) => {
-    const pts = series[i];
-    let path = "";
-    pts.forEach(([y, v], k) => { path += `${k && pts[k - 1][0] === y - 1 ? "L" : "M"}${sx(y + 0.5).toFixed(1)},${sy(v).toFixed(1)}`; });
-    parts.push(`<path d="${path}" fill="none" stroke="${sp.color}" stroke-width="1.8" stroke-linejoin="round"/>`);
-    for (const [k, [y, v]] of pts.entries()) {
-      const r = sp.years[k];
-      parts.push(`<circle cx="${sx(y + 0.5)}" cy="${sy(v)}" r="2.3" fill="${sp.color}"><title>${pelEsc(sp.name)} ${y}: ${r.abundance} larvae/10 m², ` +
-        `range ${Math.round(r.range / 1000)}k km², ${Math.round(r.positive * 100)}% of tows positive, ${r.cruises} cruise${r.cruises > 1 ? "s" : ""}</title></circle>`);
+    const t0 = top(i);
+    let v = sp.years.map((r) => [r.year, pelLog(r.abundance)]);
+    if (z) {                                               // z-score of log abundance, 3-year running mean
+      const vals = v.map((p) => p[1]), mu = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mu) ** 2, 0) / vals.length) || 1;
+      const byYear = new Map(v.map(([y, x]) => [y, (x - mu) / sd]));
+      v = v.map(([y]) => { const w = [y - 1, y, y + 1].filter((k) => byYear.has(k)).map((k) => byYear.get(k)); return [y, w.reduce((a, b) => a + b, 0) / w.length]; });
     }
-  });
-  // the cruises used: a row per species under the plot, each cruise drawn start to end
-  const ry0 = m.t + ph + 5;
-  d.species.forEach((sp, i) => {
-    const y = ry0 + i * 8;
-    parts.push(`<text x="${m.l - 6}" y="${y + 5}" text-anchor="end" font-size="8.5" fill="${sp.color}" ${pelFont}>${pelEsc(sp.key)}</text>`);
+    const zMax = Math.max(2.5, Math.ceil(Math.max(...v.map((p) => Math.abs(p[1]))) * 2) / 2);   // symmetric, fitted to the panel's data
+    const lo = z ? -zMax : 0, hi = z ? zMax : Math.max(0.5, Math.ceil(Math.max(...v.map((p) => p[1])) * 2) / 2);
+    const sy = (x) => t0 + ph - ((x - lo) / (hi - lo)) * ph;
+    parts.unshift(`<rect x="${m.l}" y="${t0}" width="${pw}" height="${ph}" fill="#fbfaf8" stroke="#dcdad3"/>`);
+    if (z) {
+      for (let g = -Math.floor(zMax); g <= Math.floor(zMax); g++) {
+        parts.push(`<line x1="${m.l}" x2="${m.l + pw}" y1="${sy(g)}" y2="${sy(g)}" stroke="${g === 0 ? "#85837c" : "#ecebe6"}" stroke-opacity="${g === 0 ? 1 : 0.8}"/>`);
+        if (g % 2 === 0) parts.push(`<text x="${m.l - 6}" y="${sy(g) + 3.5}" text-anchor="end" ${pelTick}>${g > 0 ? "+" : ""}${g}</text>`);
+      }
+    } else {
+      const ticks = [0, 1, 10, 100, 1000, 10000, 100000].filter((t) => pelLog(t) <= hi + 1e-9);
+      for (const t of ticks) {
+        parts.push(`<line x1="${m.l}" x2="${m.l + pw}" y1="${sy(pelLog(t))}" y2="${sy(pelLog(t))}" stroke="${t === 0 ? "#85837c" : "#ecebe6"}"/>`);
+        parts.push(`<text x="${m.l - 6}" y="${sy(pelLog(t)) + 3.5}" text-anchor="end" ${pelTick}>${pelCount(t)}</text>`);
+      }
+    }
+    // the species' name, inside the panel's top left
+    parts.push(`<text x="${m.l + 6}" y="${t0 + 13}" font-size="11" font-weight="700" fill="${sp.color}" ${pelFont} stroke="#fbfaf8" stroke-width="3" paint-order="stroke">${pelEsc(sp.name)} <tspan font-weight="400" fill="#5b5a55">(${sp.season[0]}–${sp.season[sp.season.length - 1]} cruises)</tspan></text>`);
+    let path = "";
+    v.forEach(([y, x], k) => { path += `${k && v[k - 1][0] === y - 1 ? "L" : "M"}${sx(y + 0.5).toFixed(1)},${sy(x).toFixed(1)}`; });
+    parts.push(`<path d="${path}" fill="none" stroke="${sp.color}" stroke-width="1.8" stroke-linejoin="round"/>`);
+    v.forEach(([y, x], k) => {
+      const r = sp.years[k];
+      parts.push(`<circle cx="${sx(y + 0.5)}" cy="${sy(x)}" r="2.3" fill="${sp.color}"><title>${pelEsc(sp.name)} ${y}: ${r.abundance} larvae/10 m², ` +
+        `range ${Math.round(r.range / 1000)}k km², ${Math.round(r.positive * 100)}% of tows positive, ${r.cruises} cruise${r.cruises > 1 ? "s" : ""}</title></circle>`);
+    });
+    // the cruises used, start to end, just under the panel
+    const ry = t0 + ph + 3;
     for (const c of sp.cruises) {
       const a = sx(pelFrac(c.start)), b = sx(pelFrac(c.end) + 1 / 365);
-      parts.push(`<rect x="${a.toFixed(1)}" y="${y}" width="${Math.max(1.2, b - a).toFixed(1)}" height="5.5" fill="${sp.color}"><title>${pelEsc(sp.name)}: ` +
+      parts.push(`<rect x="${a.toFixed(1)}" y="${ry}" width="${Math.max(1.2, b - a).toFixed(1)}" height="${rowH - 1}" fill="${sp.color}"><title>${pelEsc(sp.name)}: ` +
         `${c.key} cruise, ${c.start} to ${c.end}, ${c.net}, ${Math.round(c.coverage * 100)}% of the grid, ${c.tows} tows</title></rect>`);
     }
+    parts.push(`<text x="${m.l - 6}" y="${ry + rowH - 1}" text-anchor="end" font-size="8.5" fill="${sp.color}" ${pelFont}>cruises</text>`);
   });
-  const ly = ry0 + rowsH + 10;
+  const axisLabel = z ? "standardised log abundance (3-yr mean)" : "larvae per 10 m² (log scale)";
+  parts.push(`<text transform="translate(${m.l - 46} ${(m.t + bottom) / 2}) rotate(-90)" text-anchor="middle" ${pelTick}>${axisLabel}</text>`);
+  const base = bottom + rowH + 4, ly = base + 10;
   for (let yr = PEL_X0; yr <= PEL_X1; yr++) {
     const five = yr % 5 === 0;
-    parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${m.t + ph}" y2="${m.t + ph + (yr % 10 === 0 ? 4 : 2)}" stroke="#85837c"/>`);
+    parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${base}" y2="${base + (yr % 10 === 0 ? 4 : 2)}" stroke="#85837c"/>`);
     if (five) parts.push(`<text x="${sx(yr) + 3}" y="${ly}" text-anchor="end" transform="rotate(-45 ${sx(yr) + 3} ${ly})" ${pelTick}>${yr}</text>`);
   }
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Annual larval abundance of sardine, anchovy and Pacific mackerel">${parts.join("")}</svg>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Annual larval abundance of sardine, anchovy and Pacific mackerel, one panel each, with El Niño winters">${parts.join("")}</svg>`;
 }
 
 // ---- per-species panels and the succession column ---------------------------------
