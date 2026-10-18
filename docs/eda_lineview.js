@@ -170,7 +170,7 @@ function makeLineView(cfg) {
     }
     for (let v = -rTop; v <= rTop + 1e-9; v += rTop / 2) parts.push(`<text x="${W - m.r + 6}" y="${sr(v) + 3.5}" ${tick}>${signedValue(+v.toFixed(1))}</text>`);
     parts.push(`<text transform="translate(${m.l - 44} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>${cfg.axisLabel}</text>`);
-    parts.push(`<text transform="translate(${W - 10} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}>RONI, SCTI (°C)</text>`);
+    parts.push(`<text transform="translate(${W - 10} ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle" ${tick}><tspan fill="#1f1e1c" font-weight="600">RONI</tspan>, <tspan fill="#7b2cbf" font-weight="600">SCTI</tspan> (°C)</text>`);
     // what up and down mean (cfg.upLabel / downLabel), inside the plot's left corners
     const corner = `font-size="11" font-weight="600" fill="#5b5a55" ${font} stroke="#fbfaf8" stroke-width="3" paint-order="stroke"`;
     parts.push(`<text x="${m.l + 6}" y="${m.t + 13}" ${corner}>${cfg.upLabel}</text>`);
@@ -180,19 +180,38 @@ function makeLineView(cfg) {
       parts.push(`<line x1="${sx(yr)}" x2="${sx(yr)}" y1="${H - m.b}" y2="${H - m.b + (yr % 10 === 0 ? 7 : five ? 5 : 3)}" stroke="#85837c"/>`);
       if (five) parts.push(`<text x="${sx(yr) + 3}" y="${ly}" text-anchor="end" transform="rotate(-45 ${sx(yr) + 3} ${ly})" ${tick}>${yr}</text>`);
     }
+    const occupied = [];                                    // screen points of the lines and bar tops, for the legend's place
     const indexPath = (seasons, color, width) => {          // RONI near-black, SCTI purple
       const pts = Object.entries(seasons).map(([k, r]) => { const [y, se] = k.split("-"); return [lvTime({ year: +y, season: se }), r]; })
         .filter(([t]) => t >= x0 && t <= x1).sort((a, b) => a[0] - b[0]);
+      for (const [t, r] of pts) occupied.push([sx(t), sr(r)]);
       if (pts.length) parts.push(`<path d="M${pts.map(([t, r]) => `${sx(t).toFixed(1)},${sr(r).toFixed(1)}`).join("L")}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linejoin="round"/>`);
     };
     indexPath(lvIndices.roni.seasons, "#1f1e1c", 2);
     indexPath(lvIndices.scti.seasons, "#7b2cbf", 2.4);
     const bw = Math.max(1.5, (sx(0.25) - sx(0)) * 0.8);
     for (const r of rows) {
+      occupied.push([sx(r.t), Math.min(sy(r.anom) - (r.nonEnso ? 10 : 0), sy(0))]);
       const y0 = sy(0), y = sy(r.anom), color = r.cat ? LV_CATEGORIES[r.cat].color : cfg.barColor(r);
       parts.push(`<rect x="${sx(r.t) - bw / 2}" y="${Math.min(y, y0)}" width="${bw}" height="${Math.max(0.5, Math.abs(y - y0))}" fill="${color}"${r.cat ? ' stroke="#3a2a1a" stroke-width="0.4"' : ""}/>`);
       if (r.nonEnso) parts.push(`<path d="M${sx(r.t)} ${y - 9} l3.5 3.5 l-3.5 3.5 l-3.5 -3.5 Z" fill="#1f1e1c"/>`);
     }
+    // which line is which (user, 2026-10-18): a legend along the top of the plot, over the bars and
+    // lines but under the draggable A/B/C markers, placed where the data reach least high (the
+    // stretch whose highest point is lowest), clear of the "Warmer"/"Shallower" corner label
+    const legend = [["#1f1e1c", 2, "RONI", "Relative Oceanic Niño Index"], ["#7b2cbf", 2.4, "SCTI", "Southern California Temperature Index"]];
+    const lgW = 262, lgH = 38, lgY = m.t + 6;
+    let lgX = W - m.r - lgW - 6, best = -Infinity;
+    for (let x = m.l + 86; x <= W - m.r - lgW - 6; x += 8) {
+      const top = Math.min(H, ...occupied.filter(([px]) => px >= x - 6 && px <= x + lgW + 6).map(([, py]) => py));
+      if (top > best + 0.5) { best = top; lgX = x; }
+    }
+    parts.push(`<rect x="${lgX}" y="${lgY}" width="${lgW}" height="${lgH}" rx="4" fill="#ffffff" fill-opacity="0.88" stroke="#dcdad3"/>`);
+    legend.forEach(([color, width, short, long], n) => {
+      const ly = lgY + 13 + n * 15;
+      parts.push(`<line x1="${lgX + 8}" x2="${lgX + 30}" y1="${ly - 3.5}" y2="${ly - 3.5}" stroke="${color}" stroke-width="${width}"/>`);
+      parts.push(`<text x="${lgX + 36}" y="${ly}" font-size="10.5" ${font} fill="#1f1e1c"><tspan font-weight="700" fill="${color}">${short}</tspan> ${long}</text>`);
+    });
     // the panels' seasons: a dotted line each, tagged A/B/C above the plot (tags moved apart if close)
     const marks = view.panels.map((k, n) => ({ n, r: rows.find((x) => x.key === k) })).filter((q) => q.r)
       .map((q) => ({ ...q, x: sx(q.r.t) })).sort((a, b) => a.x - b.x);
@@ -209,7 +228,7 @@ function makeLineView(cfg) {
       parts.push(`<text class="lv-mark-when" x="${tx + 11}" y="${m.t - 8}" font-size="10" fill="#2a78d6" ${font}></text>`);
       parts.push("</g>");
     }
-    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${cfg.axisLabel} and RONI">${parts.join("")}</svg>`;
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${cfg.axisLabel}, RONI and SCTI">${parts.join("")}</svg>`;
     const svg = box.querySelector("svg");
     const seasonAt = (e, any) => {
       const r = svg.getBoundingClientRect(), X = ((e.clientX - r.left) / r.width) * W;
