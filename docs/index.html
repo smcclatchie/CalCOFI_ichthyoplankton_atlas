@@ -190,6 +190,7 @@
           <button type="button" role="radio" data-value="heat" aria-checked="false">Heat content: El Niño and marine heatwaves</button>
           <button type="button" role="radio" data-value="hypoxia" aria-checked="false">Hypoxic layer: depth of 1.4 mL/L oxygen</button>
           <button type="button" role="radio" data-value="xcorr" aria-checked="false">Cross-correlation: scatterplot matrix</button>
+          <button type="button" role="radio" data-value="pelagics" aria-checked="false">Small pelagic fish: larval abundance and range</button>
           <button type="button" role="radio" data-value="ternary" aria-checked="true">Ternary plot: water masses vs. warm/cool-water larvae (winter and spring)</button>
           <button type="button" role="radio" data-value="krill" aria-checked="false">Ternary plot: water masses vs. krill assemblages (winter and spring)</button>
         </div>
@@ -344,6 +345,23 @@
         </div>
         <p class="hint" id="xc-note"></p>
       </section>
+      <section id="eda-pel" class="eda-sections" hidden aria-label="Small pelagic fish">
+        <header>
+          <h2>Small pelagic fish: larval abundance and range</h2>
+          <div class="eda-sec-controls">
+            <div class="segmented" id="pel-scale" role="radiogroup" aria-label="Abundance scale">
+              <button type="button" role="radio" data-value="log" aria-checked="true">Abundance</button>
+              <button type="button" role="radio" data-value="z" aria-checked="false">Standardised</button>
+            </div>
+            <span class="heat-key" id="pel-key"></span>
+          </div>
+          <button type="button" class="png-btn" data-target="eda-pel" data-name="small_pelagics" title="Download a 300 dpi PNG of the graphic">Print to PNG</button>
+          <button type="button" id="pel-close" aria-label="Back to the map">✕</button>
+        </header>
+        <div id="pel-chart" class="pel-chart"></div>
+        <div id="pel-panels" class="pel-panels"></div>
+        <p class="hint" id="pel-note"></p>
+      </section>
       <section id="eda-heat" class="eda-sections" hidden aria-label="Heat content">
         <header>
           <h2>Heat content, 0–200 m: El Niño and marine heatwaves</h2>
@@ -453,6 +471,7 @@
   <script src="eda_heat.js"></script>
   <script src="eda_hypoxia.js"></script>
   <script src="eda_xcorr.js"></script>
+  <script src="eda_pelagics.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
   <script src="atlas.js"></script>
   <script src="print_png.js"></script>

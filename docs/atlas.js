@@ -1239,6 +1239,11 @@ const TERNARY_PLOTS = {
     title: "Cross-correlation: scatterplot matrix",
     hint: "Station values on the core lines, crossed as a matrix of scatterplots with Pearson's r: hydrography (0–200 m means), the SoCal Temperature Index, and the most abundant larval fish and krill species (top 10%). One season, all seasons, or one season over a range of years; column 2 can lag column 1 by a season.",
   },
+  pelagics: {
+    native: { panel: "eda-pel", render: () => renderPelagics() },
+    title: "Small pelagic fish: larval abundance and range",
+    hint: "Pacific sardine, northern anchovy and Pacific mackerel larvae, year by year, from each species' spawning-season cruises that cover the core grid broadly (marked under the time series): successional peaks between the species, and MacCall's basin hypothesis -- does a species' larval range (a kernel density of where larvae were caught) grow with its abundance? Per species, abundance against range and their cross-correlation; on the right, the species against each other.",
+  },
   hypoxia: {
     native: { panel: "eda-hyp", render: () => renderEdaHypoxia() },
     title: "Hypoxic layer: depth of 1.4 mL/L oxygen",
@@ -2058,6 +2063,7 @@ function writeHash() {
   if (edaOpen && edaPlot === "heat") writeEdaHeatHash(params);
   if (edaOpen && edaPlot === "hypoxia") writeEdaHypoxiaHash(params);
   if (edaOpen && edaPlot === "xcorr") writeEdaXcorrHash(params);
+  if (edaOpen && edaPlot === "pelagics") writeEdaPelagicsHash(params);
   if (ensembleSigma !== 0.5) params.set("smooth", String(ensembleSigma));
   if (highOpen) params.set("dist", "1");
   if (dataset !== "ichthyo") params.set("ds", dataset);
@@ -2115,6 +2121,7 @@ function readHash() {
   if (edaPlot === "heat") readEdaHeatHash(params);
   if (edaPlot === "hypoxia") readEdaHypoxiaHash(params);
   if (edaPlot === "xcorr") readEdaXcorrHash(params);
+  if (edaPlot === "pelagics") readEdaPelagicsHash(params);
   readHydroHash(params);
   const survey = meta.periods.findIndex((p) => p.key === params.get("survey"));
   const station = meta.stations.findIndex((s) => s.key === params.get("station"));
