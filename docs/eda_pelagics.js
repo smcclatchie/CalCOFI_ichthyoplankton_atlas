@@ -50,12 +50,13 @@ async function renderPelagics() {
     `<span class="pel-key-item"><i class="pel-nino-strong"></i>strong (≥ +1.5)</span>`;
   // the note first: its height sets the charts' heights
   const a = d.area;
-  $("pel-note").textContent = `Larvae per 10 m² (standard oblique net: ring net to 1977, bongo from 1978), core grid of lines ` +
-    `${a.lines[0]}–${a.lines[a.lines.length - 1]} (${a.gridStations} stations, ${Math.round(a.areaKm2 / 1000)}k km²). Each species uses the cruises ` +
-    `(survey months) of its spawning season covering ≥ ${Math.round(a.minCoverage * 100)}% of the grid, marked under the axis; annual values ` +
-    `average those cruises. Range: area holding ${Math.round(a.kdeLevel * 100)}% of a kernel density (${a.kdeBandwidthKm} km) of tows with larvae. ` +
-    `Black lines: least-squares regression of range (y, 1000 km²) on log abundance (x, larvae per 10 m²) through zero (no larvae, no range). Vertical lines: El Niño winters (Dec–Feb RONI ≥ +0.5; solid ≥ +1.5), at the year they end. r: Pearson, log abundance vs range, same year; species vs species: log abundances, the second lagging by the years shown; * and dashed: 5% significance allowing for ` +
-    `autocorrelation (Pyper & Peterman 1998). MacCall's basin hypothesis: range grows with abundance (cf. Saraux et al. 2014).`;
+  $("pel-note").textContent = `Larvae per 10 m² (ring net to 1977, bongo from 1978), core grid of lines ${a.lines[0]}–${a.lines[a.lines.length - 1]} ` +
+    `(${a.gridStations} stations, ${Math.round(a.areaKm2 / 1000)}k km²); each species' spawning-season cruises covering ≥ ${Math.round(a.minCoverage * 100)}% of the grid ` +
+    `(marked under the axis), averaged by year. Range: area holding ${Math.round(a.kdeLevel * 100)}% of a kernel density (${a.kdeBandwidthKm} km) of tows with larvae. ` +
+    `Black lines: regression of range on log abundance through zero. Grey circles: detection-bias check, each cruise rarefied to ${a.thinN0} expected larvae ` +
+    `(Poisson presence in proportion to tow density, ${a.thinDraws} draws) -- a correlation that survives reflects spatial spread, not more tows turning positive. ` +
+    `Vertical lines: El Niño winters (Dec–Feb RONI ≥ +0.5; solid ≥ +1.5). r: Pearson, same year; species vs species: log abundances, the second lagged; ` +
+    `* and dashed: 5% significance allowing for autocorrelation (Pyper & Peterman 1998). MacCall's basin hypothesis (cf. Saraux et al. 2014).`;
   drawPelSeries($("pel-chart"), d);
   drawPelPanels($("pel-panels"), d);
 }
@@ -164,7 +165,7 @@ function drawPelPanels(box, d) {
 
 function drawPelScatter(box, sp) {
   const W = box.clientWidth || 300, H = Math.max(120, box.clientHeight || 180);
-  const m = { l: 44, r: 8, t: 46, b: 30 };              // top: r, n and the regression, above the data
+  const m = { l: 44, r: 8, t: 58, b: 30 };              // top: r, n, the regression and the thinned check, above the data
   const pw = W - m.l - m.r, ph = H - m.t - m.b;
   const pts = sp.years.map((r) => [pelLog(r.abundance), r.range / 1000, r]);
   const xHi = Math.ceil(Math.max(...pts.map((p) => p[0])) * 2) / 2 || 1, yHi = Math.ceil(Math.max(...pts.map((p) => p[1])) / 20) * 20 || 20;
@@ -180,6 +181,12 @@ function drawPelScatter(box, sp) {
   }
   parts.push(`<text x="${m.l + pw / 2}" y="${H - 3}" text-anchor="middle" ${pelTick}>larvae per 10 m² (log)</text>`);
   parts.push(`<text transform="translate(${11} ${m.t + ph / 2}) rotate(-90)" text-anchor="middle" ${pelTick}>range (1000 km²)</text>`);
+  // detection-bias check (build_eda_pelagics.py): the range with every cruise thinned to the same
+  // expected catch, hollow grey, under the observed points
+  for (const [x, , r] of pts) {
+    if (r.rangeThinned === null || r.rangeThinned === undefined) continue;
+    parts.push(`<circle cx="${sx(x)}" cy="${sy(r.rangeThinned / 1000)}" r="2.4" fill="none" stroke="#85837c" stroke-width="1"><title>${r.year}, thinned: range ${Math.round(r.rangeThinned / 1000)}k km²</title></circle>`);
+  }
   for (const [x, y, r] of pts) {
     parts.push(`<circle cx="${sx(x)}" cy="${sy(y)}" r="2.6" fill="${sp.color}" fill-opacity="0.6"><title>${r.year}: ${r.abundance} larvae/10 m², range ${Math.round(r.range / 1000)}k km²</title></circle>`);
   }
@@ -201,6 +208,12 @@ function drawPelScatter(box, sp) {
   }
   parts.push(`<text x="${m.l}" y="26" font-size="10" fill="#1f1e1c" ${pelFont}>y = ${slope.toFixed(0)}·log₁₀(x + 1), through zero</text>`);
   parts.push(`<text x="${m.l}" y="39" font-size="10" fill="#1f1e1c" ${pelFont}>R² = ${r2.toFixed(2)}</text>`);
+  const tc = sp.thinCheck && sp.thinCheck.thinned;
+  if (tc && tc.r !== null) {
+    const sig = Math.abs(tc.r) > tc.crit;
+    parts.push(`<circle cx="${m.l + 3}" cy="49" r="2.4" fill="none" stroke="#85837c"/><text x="${m.l + 9}" y="52" font-size="10" fill="#5b5a55" ${pelFont}>` +
+      `thinned: r = ${tc.r.toFixed(2)}${sig ? " *" : ""} (observed ${sp.thinCheck.observed.r.toFixed(2)}, ${sp.thinCheck.years} yr)</text>`);
+  }
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${pelEsc(sp.name)} abundance against range">${parts.join("")}</svg>`;
 }
 

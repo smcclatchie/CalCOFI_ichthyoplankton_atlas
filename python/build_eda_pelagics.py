@@ -62,6 +62,20 @@ Peterman 1998, effective sample size from the two series' autocorrelations to
 lag N/5); crit = the two-sided 5% critical r for that effective N. The same is
 done between species (abundance against abundance) for question 1.
 
+Detection-bias check (2026-10-18, user): a denser year turns more tows
+positive even if the larvae occupy the same area, which alone would make range
+grow with abundance. Null model: each cruise with larvae is rarefied to the
+same expected catch, THIN_N0 (50) larvae, spread over its tows in proportion to
+their observed densities (lambda_i = N0 * a_i / sum(a)); a tow is positive with
+probability 1 - exp(-lambda_i) (Poisson); the range is recomputed and averaged
+over THIN_DRAWS (100) random draws (fixed seed). Every cruise then has the same
+detection effort, so a correlation that survives reflects the larvae's spatial
+spread, not their total. (Prototype 2026-10-18: N0 = 20, 50, 100 gave nearly
+the same r.) Limitation: tows that caught nothing stay at zero, so detection
+in the original catches isn't fully undone -- the check is conservative.
+Years whose selected cruises caught no larvae have no thinned range and are
+left out of both r's compared (observed and thinned, same years).
+
 Usage:  python build_eda_pelagics.py   (after build_atlas_data.py)
 """
 
@@ -86,6 +100,8 @@ KDE_BW_KM = 40.0
 KDE_LEVEL = 0.90
 CELL_KM = 10.0
 MAX_LAG = 5
+THIN_N0 = 50
+THIN_DRAWS = 100
 
 SPECIES = [
     {"key": "sardine", "name": "Pacific sardine", "scientific": "Sardinops sagax", "id": 7,
@@ -202,7 +218,7 @@ def main():
     area_km2 = len(cells) * CELL_KM**2
 
     def kde_range(points):
-        if not points:
+        if len(points) == 0:
             return 0.0
         X = np.array(points)
         f = np.exp(-((cells[:, None, :] - X[None]) ** 2).sum(-1) / (2 * KDE_BW_KM**2)).sum(1)
@@ -217,9 +233,21 @@ def main():
         d = np.sqrt(((G[:, None, :] - X[None]) ** 2).sum(-1)).min(1)
         coverage[p] = float((d <= NEAR_KM).mean())
 
+    rng = np.random.default_rng(20261018)
+
+    def thinned_range(points, densities):
+        """Mean KDE range of the cruise rarefied to THIN_N0 expected larvae (None with no larvae)."""
+        a = np.asarray(densities, float)
+        if a.sum() <= 0:
+            return None
+        X = np.asarray(points)
+        p_pos = 1.0 - np.exp(-THIN_N0 * a / a.sum())
+        return float(np.mean([kde_range(X[rng.random(len(a)) < p_pos]) for _ in range(THIN_DRAWS)]))
+
     result = {"generated": meta.get("generated"), "species": [], "area": {
         "gridStations": len(grid), "areaKm2": round(area_km2), "lines": sorted(CORE_LINES),
         "minCoverage": MIN_COVERAGE, "kdeBandwidthKm": KDE_BW_KM, "kdeLevel": KDE_LEVEL, "nearKm": NEAR_KM,
+        "thinN0": THIN_N0, "thinDraws": THIN_DRAWS,
         "hull": [[round(x / kx, 3), round(y / 110.57, 3)] for x, y in hull]}}
     series = {}
     for sp in SPECIES:
@@ -236,26 +264,38 @@ def main():
             sts = [st for st in tows[p][net_of[p]] if in_area[st]]
             vals = [ab.get((p, st), 0.0) for st in sts]
             present = [pos[st] for st, v in zip(sts, vals) if v > 0]
+            thin = thinned_range([pos[st] for st in sts], vals)
             c = {"key": per["key"], "start": per["start"], "end": per["end"], "net": nets[net_of[p]],
                  "coverage": round(coverage[p], 2), "tows": len(sts),
                  "abundance": round(float(np.mean(vals)), 2), "range": round(kde_range(present)),
-                 "positive": round(len(present) / len(sts), 3)}
+                 "positive": round(len(present) / len(sts), 3),
+                 "rangeThinned": None if thin is None else round(thin)}
             cruises.append(c)
             by_year[per["year"]].append(c)
         years = sorted(by_year)
         rows = [{"year": y, "cruises": len(by_year[y]),
                  "abundance": round(float(np.mean([c["abundance"] for c in by_year[y]])), 2),
                  "range": round(float(np.mean([c["range"] for c in by_year[y]]))),
-                 "positive": round(float(np.mean([c["positive"] for c in by_year[y]])), 3)} for y in years]
+                 "positive": round(float(np.mean([c["positive"] for c in by_year[y]])), 3),
+                 "rangeThinned": (lambda t: round(float(np.mean(t))) if t else None)(
+                     [c["rangeThinned"] for c in by_year[y] if c["rangeThinned"] is not None])} for y in years]
         la = [math.log10(r["abundance"] + 1) for r in rows]
         lr = [r["range"] / 1000.0 for r in rows]
         series[sp["key"]] = (years, la)
+        # detection-bias check: observed vs thinned range against log abundance, same years (with larvae)
+        ty = [(math.log10(r["abundance"] + 1), r["range"] / 1000.0, r["rangeThinned"] / 1000.0, r["year"]) for r in rows if r["rangeThinned"] is not None]
+        tx, tobs, tnull, tyr = (list(v) for v in zip(*ty))
+        c_obs, c_null = ccf(tyr, tx, tyr, tobs), ccf(tyr, tx, tyr, tnull)
+        lag0 = lambda cc: next(c for c in cc if c["lag"] == 0)
+        thin_summary = {"years": len(ty), "observed": lag0(c_obs), "thinned": lag0(c_null)}
         result["species"].append({**{k: sp[k] for k in ("key", "name", "scientific", "id", "color")},
                                   "season": [MONTHS[m - 1] for m in sp["months"]], "cruises": cruises, "years": rows,
-                                  "ccf": ccf(years, la, years, lr)})
+                                  "ccf": ccf(years, la, years, lr), "thinCheck": thin_summary})
         r0 = next(c for c in result["species"][-1]["ccf"] if c["lag"] == 0)
         print(f"{sp['name']}: {len(cruises)} cruises, {len(years)} years ({years[0]}-{years[-1]}); "
-              f"abundance-range r(lag 0) = {r0['r']} (crit {r0.get('crit')}, n {r0['n']}, nEff {r0.get('nEff')})")
+              f"abundance-range r(lag 0) = {r0['r']} (crit {r0.get('crit')}, n {r0['n']}, nEff {r0.get('nEff')}); "
+              f"thinned to {THIN_N0}: r = {thin_summary['thinned']['r']} (crit {thin_summary['thinned']['crit']}) vs observed "
+              f"{thin_summary['observed']['r']} on the same {thin_summary['years']} years")
     # between species (question 1): abundance of A(t) against B(t + lag)
     keys = [sp["key"] for sp in SPECIES]
     result["between"] = []
