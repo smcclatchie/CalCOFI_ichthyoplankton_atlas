@@ -434,9 +434,31 @@ function showSectionMessage(text) {
 // ---------------------------------------------------------------- draw --
 // Place the computed section under the map: screen x of a position along the
 // line, fitted from the map positions of the line's stations.
+// The section's plot area is kept to SECTION_ASPECT units wide per unit of
+// height (user, 2026-10-20: with the map/section zoom no longer coupled, the
+// section filled the page's width -- ~6:1 -- and looked stretched); the panel
+// shrinks to fit, anchored at the right, the map showing to its left. On a
+// narrow screen it just takes the width there is.
+const SECTION_ASPECT = 3;
 function drawSection() {
   if (!sCur || !sectionShown()) return;
-  drawSectionSVG($("section-chart"), sCur, { fit: "width", id: "sec", line: sstate.line, mapDepth: true, note: true });
+  const panel = $("section-panel"), box = $("section-chart");
+  panel.style.left = "";
+  panel.style.width = "";                                    // the CSS width first: what's available
+  const avail = panel.getBoundingClientRect().width;
+  const noteLen = sectionNote(sCur.scale, sCur.v).length;
+  // the note under the plot wraps more in a narrower panel, and its height sets the plot's: iterate
+  let width = avail, noteH = 30;
+  for (let k = 0; k < 4; k++) {
+    noteH = 15 * Math.ceil((noteLen * 5.9) / Math.max(200, width - 22)) + 4;
+    const ph = Math.max(110, box.clientHeight - noteH) - 30 - 34;   // drawSectionSVG's top/bottom margins
+    width = Math.min(avail, 60 + 78 + SECTION_ASPECT * ph + 22);    // its left/right margins + the panel's padding
+  }
+  if (width < avail - 1) {
+    panel.style.left = "auto";
+    panel.style.width = `${Math.round(width)}px`;
+  }
+  drawSectionSVG(box, sCur, { fit: "width", id: "sec", line: sstate.line, mapDepth: true, note: true, noteH });
 }
 
 // Draw a computed section (computeSection) into box. opts: fit "map" (the
@@ -447,7 +469,7 @@ function drawSection() {
 function drawSectionSVG(box, sec, opts) {
   const { v, geo, scale, grid, labels, x0, x1 } = sec, span = x1 - x0;
   const D = sectionDepth(v), id = opts.id;
-  const W = box.clientWidth || 600, H = Math.max(110, (box.clientHeight || 260) - (opts.note ? 30 : 0));   // less the note lines
+  const W = box.clientWidth || 600, H = Math.max(110, (box.clientHeight || 260) - (opts.note ? opts.noteH || 30 : 0));   // less the note lines
   const m = { l: 60, r: 78, t: 30, b: 34 }, ph = H - m.t - m.b;
   // the map's horizontal scale along the line (screen x against distance along
   // it, fitted over the stations), not its position: the section is as wide as
