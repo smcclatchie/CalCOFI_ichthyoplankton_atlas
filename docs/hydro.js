@@ -329,7 +329,16 @@ const hTitle = () => (hVar().perCast || hstate.variable === "iso_depth" ? `${hLa
 // Lower-case the first letter in running text, but not an abbreviation (N², CTD).
 const lowerFirst = (t) => (/^[A-Z][a-z]/.test(t) ? t[0].toLowerCase() + t.slice(1) : t);
 
+// What hAvailable (and the steps) were last built for: source, depth file and
+// variable. renderHydro rebuilds them whenever that changes -- not only after a
+// load: going back to an already-loaded source (bottle -> CTD -> bottle) kept
+// the other source's survey-month indices, so the season showed "no data"
+// (user, 2026-10-20). The two sources number their survey months differently.
+let hStepsBuiltFor = null;
+const hStepsKey = () => `${hKey()}|${hVar().column}`;
+
 function updateHydroSteps(target = hTime()) {
+  hStepsBuiltFor = hStepsKey();
   const d = hData();
   const col = hVar().column;
   const periods = hSrc().periods;
@@ -967,6 +976,10 @@ async function renderHydro() {
     $("status").textContent = "";
     if (token !== hLoadToken) return;
     if (!before) updateHydroSteps(hydroPendingTime ?? hTime());
+    hydroPendingTime = null;
+  }
+  if (hStepsBuiltFor !== hStepsKey()) {            // data already loaded, but the steps are another source's/depth's
+    updateHydroSteps(hydroPendingTime ?? hTime());
     hydroPendingTime = null;
   }
   setHydroVisible(true);
