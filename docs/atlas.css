@@ -78,6 +78,12 @@ body {
   letter-spacing: 0.03em;
 }
 .two-up { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Variable + Depth/Isopycnal (2026-10-20, user: long variable names were cut off): the Depth or
+   Isopycnal box takes only the width it needs and the variable box the rest -- the whole row when
+   Depth is hidden (per-cast variables such as the depths of sigma-theta 25.8 and 26.4) */
+.two-up.hydro-only { grid-template-columns: minmax(0, 1fr) auto; }
+.two-up.hydro-only #hydro-depth-box, .two-up.hydro-only #hydro-iso-box { width: 92px; }
+.two-up.hydro-only > .hint { grid-column: 1 / -1; }
 .two-up > div { min-width: 0; }
 .two-up > p { grid-column: 1 / -1; margin-top: 0; }
 .nocase { text-transform: none; }
